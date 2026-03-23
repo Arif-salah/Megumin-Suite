@@ -82,7 +82,7 @@ The Suite injects a structured thinking process that forces the AI custom thinki
 1. Open SillyTavern
 2. Go to **Extensions** → **Install Extension**
 3. Paste the repo URL and install
-4. Load the two provided presets: **`Megumin Suite`** and **`Megumin Engine`** [[LINK]([https://github.com/Arif-salah/Megumin-Suite-Ext](https://github.com/Arif-salah/Megumin-Suite-Ext/tree/main/Presets))]
+4. Load the two provided presets: **`Megumin Suite`** and **`Megumin Engine`** [View Presets](https://github.com/Arif-salah/Megumin-Suite-Ext/tree/main/Presets)
 5. For each preset, select your preferred API and **don't forget to save them, dummy**
 6. Open any chat
 7. Click the floating Megumin Suite button on your screen
