@@ -100,7 +100,7 @@ Select what language the AI uses *inside its hidden `<think>` tags*.
 ### 1. The Dev Mode UI
 At the bottom of the Suite, there is a purple **Dev** button. Clicking this exposes the raw prompt code for the entire profile. 
 
-![Screenshot 9: Dev Mode UI]([./Screenshots/8.png])
+![Screenshot 9: Dev Mode UI](./Screenshots/8.png)
 
 *   You can rewrite any block of the prompt manually. 
 *   **You must click "Save Override"** to lock in your changes. The box will glow Gold and say "MODIFIED".
