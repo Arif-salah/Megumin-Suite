@@ -34,7 +34,7 @@
             "injection_depth": 4,
             "injection_order": 100,
             "injection_trigger": [],
-            "forbid_overrides": false
+            "forbid_overrides": true
         },
         {
             "name": "</character_description>",
@@ -64,7 +64,7 @@
             "injection_depth": 4,
             "injection_order": 100,
             "injection_trigger": [],
-            "forbid_overrides": false
+            "forbid_overrides": true
         },
         {
             "identifier": "chatHistory",

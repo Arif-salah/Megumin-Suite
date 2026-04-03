@@ -1,5 +1,145 @@
 {
-    "temperature": 1.2,
+    "extensions": {
+        "regex_scripts": [
+            {
+                "id": "4661f9aa-0c22-472e-b82f-a8339f3ca31c",
+                "scriptName": "Thinking Hide",
+                "findRegex": "/(<disclaimer>.*?<\\/disclaimer>)|(<guifan>.*?<\\/guifan>)|(<danmu>.*?<\\/danmu>)|(<options>.*?<\\/options>)|```start|```end|<done>|`<done>`|(.*?<\\/(?:ksc\\??|think(?:ing)?)>(\\n)?)|(<(?:ksc\\??|think(?:ing)?)>[\\s\\S]*?<\\/(?:ksc\\??|think(?:ing)?)>(\\n)?)/gs",
+                "replaceString": "",
+                "trimStrings": [],
+                "placement": [
+                    2
+                ],
+                "disabled": false,
+                "markdownOnly": true,
+                "promptOnly": false,
+                "runOnEdit": true,
+                "substituteRegex": 0,
+                "minDepth": null,
+                "maxDepth": null
+            },
+            {
+                "id": "ca6cc695-2253-404d-859f-18f7458c00d1",
+                "scriptName": "Better Info block",
+                "findRegex": "/<details>\\s*<summary>.*?📌.*?<b>Status<\\/b><\\/summary>\\s*([\\s\\S]*?)\\s*<\\/details>/gi",
+                "replaceString": "<style>\n.ui-card { margin: 12px 0; background: rgba(30, 32, 36, 0.8); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.2); padding: 0 16px; overflow: hidden; }\n.ui-card summary { cursor: pointer; font-weight: bold; padding: 10px 16px; background: rgba(0, 0, 0, 0.3); margin: 0 -16px; outline: none; }\n.ui-card[open] { padding-bottom: 16px; }\n.ui-card[open] summary { margin-bottom: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }\n</style>\n<details class=\"ui-card\" open>\n<summary style=\"color: #4da6ff;\">📌 Status</summary>\n\n$1\n\n</details>",
+                "trimStrings": [],
+                "placement": [
+                    2
+                ],
+                "disabled": false,
+                "markdownOnly": true,
+                "promptOnly": false,
+                "runOnEdit": true,
+                "substituteRegex": 0,
+                "minDepth": null,
+                "maxDepth": null
+            },
+            {
+                "id": "7a97ddcf-1c75-4283-ab8a-98fdf11e4580",
+                "scriptName": "summary",
+                "findRegex": "/<details>\\s*<summary>.*?💾.*?<b>Summary<\\/b><\\/summary>\\s*([\\s\\S]*?)\\s*<\\/details>/gi",
+                "replaceString": "<details style=\"margin: 12px 0; background: rgba(30, 32, 36, 0.8); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.2); overflow: hidden;\">\n<summary style=\"cursor: pointer; font-weight: bold; padding: 10px 14px; color: #ffb84d; background: rgba(0, 0, 0, 0.3);\">💾 Summary</summary>\n<div style=\"padding: 4px 14px 14px 14px; font-style: italic; color: #e0e0e0;\">\n\n$1\n\n</div>\n</details>",
+                "trimStrings": [],
+                "placement": [
+                    2
+                ],
+                "disabled": false,
+                "markdownOnly": true,
+                "promptOnly": false,
+                "runOnEdit": true,
+                "substituteRegex": 0,
+                "minDepth": null,
+                "maxDepth": null
+            },
+            {
+                "id": "9d495102-10ce-42ec-b922-a88fcb3087c5",
+                "scriptName": "Thinking Box",
+                "findRegex": "/(<disclaimer>.*?<\\/disclaimer>)|(<guifan>.*?<\\/guifan>)|(<danmu>.*?<\\/danmu>)|(<options>.*?<\\/options>)|```start|```end|<done>|`<done>`|(.*?<\\/(?:ksc\\??|think(?:ing)?)>(\\n)?)|(<(?:ksc\\??|think(?:ing)?)>[\\s\\S]*?<\\/(?:ksc\\??|think(?:ing)?)>(\\n)?)/gs",
+                "replaceString": "<details style=\"margin: 20px 0; border-radius: 8px; overflow: hidden; border: 1px solid #333;\">\n  <summary style=\"text-align: center; color: #aaa; letter-spacing: 2px; font-size: 0.75em; text-transform: uppercase; cursor: pointer; list-style: none; padding: 10px; background: rgba(255,255,255,0.05);\">\n    — Thinking Process —\n  </summary>\n  <div style=\"\n    padding: 25px; \n    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; \n    font-size: 0.95em; \n    color: #eee; \n    line-height: 1.6; \n    background: #1e1e1e;\n    direction: ltr; \n    text-align: left;\n    white-space: pre-wrap;\n  \">\n$0\n  </div>\n</details>\n",
+                "trimStrings": [],
+                "placement": [
+                    2
+                ],
+                "disabled": false,
+                "markdownOnly": true,
+                "promptOnly": false,
+                "runOnEdit": true,
+                "substituteRegex": 0,
+                "minDepth": null,
+                "maxDepth": null
+            },
+            {
+                "id": "18075f70-9387-43d0-9fd9-37f026610cd0",
+                "scriptName": "Thinking cleanup (don't touch)",
+                "findRegex": "/(<disclaimer>.*?<\\/disclaimer>)|(<guifan>.*?<\\/guifan>)|(<danmu>.*?<\\/danmu>)|(<options>.*?<\\/options>)|```start|```end|<done>|`<done>`|(.*?<\\/(?:ksc\\??|think(?:ing)?)>(\\n)?)|(<(?:ksc\\??|think(?:ing)?)>[\\s\\S]*?<\\/(?:ksc\\??|think(?:ing)?)>(\\n)?)/gs",
+                "replaceString": "",
+                "trimStrings": [],
+                "placement": [
+                    2
+                ],
+                "disabled": false,
+                "markdownOnly": false,
+                "promptOnly": true,
+                "runOnEdit": true,
+                "substituteRegex": 0,
+                "minDepth": null,
+                "maxDepth": null
+            },
+            {
+                "id": "e59e73c8-2743-4ff6-a52f-4890e9cd5777",
+                "scriptName": "infoblock",
+                "findRegex": "/<details>\\s*<summary>.*?📌.*?<b>Status<\\/b><\\/summary>\\s*([\\s\\S]*?)\\s*<\\/details>/gi",
+                "replaceString": "",
+                "trimStrings": [],
+                "placement": [
+                    2
+                ],
+                "disabled": false,
+                "markdownOnly": false,
+                "promptOnly": true,
+                "runOnEdit": true,
+                "substituteRegex": 0,
+                "minDepth": 2,
+                "maxDepth": null
+            },
+            {
+                "id": "d54391d0-b0d9-4257-b298-8f9b4b27dc81",
+                "scriptName": "summary cleanup",
+                "findRegex": "<details>\\s*<summary>💾 <b>Summary<\\/b><\\/summary>[\\s\\S]*?<\\/details>",
+                "replaceString": "",
+                "trimStrings": [],
+                "placement": [
+                    2
+                ],
+                "disabled": false,
+                "markdownOnly": false,
+                "promptOnly": true,
+                "runOnEdit": true,
+                "substituteRegex": 0,
+                "minDepth": null,
+                "maxDepth": 40
+            },
+            {
+                "id": "6fc8efba-319f-40a7-b055-052c7cff0193",
+                "scriptName": "summary cleanup",
+                "findRegex": "[\\s\\S]*<summary[^>]*>💾 <b>Summary<\\/b><\\/summary>\\s*([\\s\\S]*?)\\s*<\\/details>[\\s\\S]*",
+                "replaceString": "summary:\\n$1",
+                "trimStrings": [],
+                "placement": [
+                    2
+                ],
+                "disabled": false,
+                "markdownOnly": false,
+                "promptOnly": true,
+                "runOnEdit": true,
+                "substituteRegex": 0,
+                "minDepth": 40,
+                "maxDepth": null
+            }
+        ]
+    },
+    "temperature": 1,
     "frequency_penalty": 0,
     "presence_penalty": 0,
     "top_p": 1,
@@ -8,7 +148,7 @@
     "min_p": 0,
     "repetition_penalty": 1,
     "max_context_unlocked": true,
-    "openai_max_context": 1915633,
+    "openai_max_context": 2000000,
     "openai_max_tokens": 8000,
     "names_behavior": 0,
     "send_if_empty": "",
@@ -34,7 +174,7 @@
             "injection_depth": 4,
             "injection_order": 100,
             "injection_trigger": [],
-            "forbid_overrides": false
+            "forbid_overrides": true
         },
         {
             "name": "</history>",
@@ -58,13 +198,13 @@
             "name": "Output format",
             "system_prompt": true,
             "role": "system",
-            "content": "[OUTPUT ORDER]\nEvery response must follow this exact structure in this exact order:\n\n<think>\n{Thinking — all 9 steps — minimum 400 words}\n</think>\n\n{Main narrative response}\n\n\n[[cyoa]]\n[[infoblock]]\n[[summary]]\n[[Language]]",
+            "content": "[OUTPUT ORDER]\nEvery response must follow this exact structure in this exact order:\n\n<think>\n{Thinking — minimum 400 words — only once}\n</think>\n\n[[MVU]]\n\n[[cyoa]]\n[[infoblock]]\n[[summary]]\n[[Language]]",
             "identifier": "jailbreak",
             "injection_position": 0,
             "injection_depth": 4,
             "injection_order": 100,
             "injection_trigger": [],
-            "forbid_overrides": false
+            "forbid_overrides": true
         },
         {
             "identifier": "chatHistory",
@@ -212,7 +352,7 @@
             "marker": false,
             "name": "Main 2",
             "role": "system",
-            "content": "[[prompt4]]\n\n[[COLOR]]\n\n[[prompt5]]\n\n[[death]]\n\n[[combat]]\n\n[[prompt6]]\n[[aiprompt]]\n[[Direct]]\n\n[BAN LIST]\nNever use these phrases or patterns. They are dead language:\n- \"felt it like a physical blow\"\n- \"a breath they didn't know they were holding\"\n- \"let out a breath they didn't realize they were holding\"\n- \"the air felt heavy\" / \"thick\" / \"charged\"\n- \"something shifted between them\"\n- \"time seemed to stop\" / \"slow down\"\n- \"the tension was palpable\"\n- \"a silence that spoke volumes\"\n- \"electricity crackled\" / \"sparked between them\"\n- \"without waiting for a response\"\n- \"eyes they didn't know were burning\"\n- \"the weight of the words hung between them\"\n- \"swallowed thickly\"\n- \"the world fell away\"\n- \"searched their face for\"\n- \"a look that could only be described as\"\nIf you catch yourself writing any of these, delete it and replace\nwith something specific to this scene and these characters.",
+            "content": "[[prompt4]]\n\n[[COLOR]]\n\n[[prompt5]]\n\n[[death]]\n\n[[combat]]\n\n[[prompt6]]\n[[aiprompt]]\n[[Direct]]\n\n[BAN LIST]\nNever use these phrases or patterns. They are dead language:\n- \"felt it like a physical blow\"\n- \"a breath they didn't know they were holding\"\n- \"let out a breath they didn't realize they were holding\"\n- \"the air felt heavy\" / \"thick\" / \"charged\"\n- \"something shifted between them\"\n- \"time seemed to stop\" / \"slow down\"\n- \"the tension was palpable\"\n- \"a silence that spoke volumes\"\n- \"electricity crackled\" / \"sparked between them\"\n- \"without waiting for a response\"\n- \"eyes they didn't know were burning\"\n- \"the weight of the words hung between them\"\n- \"swallowed thickly\"\n- \"the world fell away\"\n- \"searched their face for\"\n- \"a look that could only be described as\"\n[[banlist]]\nIf you catch yourself writing any of these, delete it and replace with something specific to this scene and these characters.",
             "injection_position": 0,
             "injection_depth": 4,
             "injection_order": 100,
@@ -401,145 +541,5 @@
     "n": 1,
     "request_images": false,
     "request_image_aspect_ratio": "",
-    "request_image_resolution": "",
-    "extensions": {
-        "regex_scripts": [
-            {
-                "id": "9d495102-10ce-42ec-b922-a88fcb3087c5",
-                "scriptName": "Thinking Box",
-                "findRegex": "/(<disclaimer>.*?<\\/disclaimer>)|(<guifan>.*?<\\/guifan>)|(<danmu>.*?<\\/danmu>)|(<options>.*?<\\/options>)|```start|```end|<done>|`<done>`|(.*?<\\/(?:ksc\\??|think(?:ing)?)>(\\n)?)|(<(?:ksc\\??|think(?:ing)?)>[\\s\\S]*?<\\/(?:ksc\\??|think(?:ing)?)>(\\n)?)/gs",
-                "replaceString": "<details style=\"margin: 20px 0; border: none;\">\n<summary style=\"text-align: center; color: #888; letter-spacing: 3px; font-size: 0.7em; text-transform: uppercase; cursor: pointer; list-style: none; outline: none;\">\n  — Thinking Box —\n</summary>\n<div style=\"\n  padding: 30px 10%; \n  font-family: 'Georgia', serif; \n  font-size: 1.1em; \n  color: #ccc; \n  line-height: 1.8; \n  border-left: 1px solid #444; \n  border-right: 1px solid #444; \n  background: linear-gradient(to bottom, transparent, rgba(255,255,255,0.02), transparent);\n  white-space: pre-wrap; \n  direction: rtl; \n  text-align: right;\n\">\n$0\n</div>\n</details>",
-                "trimStrings": [],
-                "placement": [
-                    2
-                ],
-                "disabled": false,
-                "markdownOnly": true,
-                "promptOnly": false,
-                "runOnEdit": true,
-                "substituteRegex": 0,
-                "minDepth": null,
-                "maxDepth": null
-            },
-            {
-                "id": "4661f9aa-0c22-472e-b82f-a8339f3ca31c",
-                "scriptName": "Thinking Hide",
-                "findRegex": "/(<disclaimer>.*?<\\/disclaimer>)|(<guifan>.*?<\\/guifan>)|(<danmu>.*?<\\/danmu>)|(<options>.*?<\\/options>)|```start|```end|<done>|`<done>`|(.*?<\\/(?:ksc\\??|think(?:ing)?)>(\\n)?)|(<(?:ksc\\??|think(?:ing)?)>[\\s\\S]*?<\\/(?:ksc\\??|think(?:ing)?)>(\\n)?)/gs",
-                "replaceString": "",
-                "trimStrings": [],
-                "placement": [
-                    2
-                ],
-                "disabled": true,
-                "markdownOnly": true,
-                "promptOnly": false,
-                "runOnEdit": true,
-                "substituteRegex": 0,
-                "minDepth": null,
-                "maxDepth": null
-            },
-            {
-                "id": "18075f70-9387-43d0-9fd9-37f026610cd0",
-                "scriptName": "Thinking cleanup (don't touch)",
-                "findRegex": "/(<disclaimer>.*?<\\/disclaimer>)|(<guifan>.*?<\\/guifan>)|(<danmu>.*?<\\/danmu>)|(<options>.*?<\\/options>)|```start|```end|<done>|`<done>`|(.*?<\\/(?:ksc\\??|think(?:ing)?)>(\\n)?)|(<(?:ksc\\??|think(?:ing)?)>[\\s\\S]*?<\\/(?:ksc\\??|think(?:ing)?)>(\\n)?)/gs",
-                "replaceString": "",
-                "trimStrings": [],
-                "placement": [
-                    2
-                ],
-                "disabled": false,
-                "markdownOnly": false,
-                "promptOnly": true,
-                "runOnEdit": true,
-                "substituteRegex": 0,
-                "minDepth": null,
-                "maxDepth": null
-            },
-            {
-                "id": "e59e73c8-2743-4ff6-a52f-4890e9cd5777",
-                "scriptName": "infoblock",
-                "findRegex": "/<details>\\s*<summary>.*?📌.*?<b>Status<\\/b><\\/summary>\\s*([\\s\\S]*?)\\s*<\\/details>/gi",
-                "replaceString": "",
-                "trimStrings": [],
-                "placement": [
-                    2
-                ],
-                "disabled": false,
-                "markdownOnly": false,
-                "promptOnly": true,
-                "runOnEdit": true,
-                "substituteRegex": 0,
-                "minDepth": 2,
-                "maxDepth": null
-            },
-            {
-                "id": "ca6cc695-2253-404d-859f-18f7458c00d1",
-                "scriptName": "Better Info block",
-                "findRegex": "/<details>\\s*<summary>.*?📌.*?<b>Status<\\/b><\\/summary>\\s*([\\s\\S]*?)\\s*<\\/details>/gi",
-                "replaceString": "<style>\n.ui-card { margin: 12px 0; background: rgba(30, 32, 36, 0.8); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.2); padding: 0 16px; overflow: hidden; }\n.ui-card summary { cursor: pointer; font-weight: bold; padding: 10px 16px; background: rgba(0, 0, 0, 0.3); margin: 0 -16px; outline: none; }\n.ui-card[open] { padding-bottom: 16px; }\n.ui-card[open] summary { margin-bottom: 12px; border-bottom: 1px solid rgba(255, 255, 255, 0.05); }\n</style>\n<details class=\"ui-card\" open>\n<summary style=\"color: #4da6ff;\">📌 Status</summary>\n\n$1\n\n</details>",
-                "trimStrings": [],
-                "placement": [
-                    2
-                ],
-                "disabled": false,
-                "markdownOnly": true,
-                "promptOnly": false,
-                "runOnEdit": true,
-                "substituteRegex": 0,
-                "minDepth": null,
-                "maxDepth": null
-            },
-            {
-                "id": "d54391d0-b0d9-4257-b298-8f9b4b27dc81",
-                "scriptName": "summary cleanup",
-                "findRegex": "<details>\\s*<summary>💾 <b>Summary<\\/b><\\/summary>[\\s\\S]*?<\\/details>",
-                "replaceString": "",
-                "trimStrings": [],
-                "placement": [
-                    2
-                ],
-                "disabled": false,
-                "markdownOnly": false,
-                "promptOnly": true,
-                "runOnEdit": true,
-                "substituteRegex": 0,
-                "minDepth": null,
-                "maxDepth": 20
-            },
-            {
-                "id": "6fc8efba-319f-40a7-b055-052c7cff0193",
-                "scriptName": "summary cleanup",
-                "findRegex": "[\\s\\S]*<summary[^>]*>💾 <b>Summary<\\/b><\\/summary>\\s*([\\s\\S]*?)\\s*<\\/details>[\\s\\S]*",
-                "replaceString": "summary:\\n$1",
-                "trimStrings": [],
-                "placement": [
-                    2
-                ],
-                "disabled": false,
-                "markdownOnly": false,
-                "promptOnly": true,
-                "runOnEdit": true,
-                "substituteRegex": 0,
-                "minDepth": 20,
-                "maxDepth": null
-            },
-            {
-                "id": "7a97ddcf-1c75-4283-ab8a-98fdf11e4580",
-                "scriptName": "summary",
-                "findRegex": "/<details>\\s*<summary>.*?💾.*?<b>Summary<\\/b><\\/summary>\\s*([\\s\\S]*?)\\s*<\\/details>/gi",
-                "replaceString": "<details style=\"margin: 12px 0; background: rgba(30, 32, 36, 0.8); border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.2); overflow: hidden;\">\n<summary style=\"cursor: pointer; font-weight: bold; padding: 10px 14px; color: #ffb84d; background: rgba(0, 0, 0, 0.3);\">💾 Summary</summary>\n<div style=\"padding: 4px 14px 14px 14px; font-style: italic; color: #e0e0e0;\">\n\n$1\n\n</div>\n</details>",
-                "trimStrings": [],
-                "placement": [
-                    2
-                ],
-                "disabled": false,
-                "markdownOnly": true,
-                "promptOnly": false,
-                "runOnEdit": true,
-                "substituteRegex": 0,
-                "minDepth": null,
-                "maxDepth": null
-            }
-        ]
-    }
+    "request_image_resolution": ""
 }

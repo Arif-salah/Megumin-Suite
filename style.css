@@ -11,9 +11,25 @@
 }
 
 #prompt-slot-fixed-btn {
-    position: fixed; top: 60px; right: 20px; z-index: 9999; width: 48px; height: 48px; border-radius: 12px; border: none;
-    background: var(--bg-panel); color: var(--text-main); font-size: 1.4rem; cursor: pointer; box-shadow: 0 4px 12px rgba(0,0,0,0.5); border: 1px solid var(--border-color);
-    transition: all 0.2s ease; display: flex; align-items: center; justify-content: center;
+    position: fixed; 
+    top: 60px; 
+    right: 20px; 
+    z-index: 9999; 
+    width: 48px; 
+    height: 48px; 
+    border-radius: 12px; 
+    border: none;
+    background: var(--bg-panel); 
+    color: var(--text-main); 
+    font-size: 1.4rem; 
+    cursor: pointer; 
+    box-shadow: 0 4px 12px rgba(0,0,0,0.5); 
+    border: 1px solid var(--border-color);
+    /* THE FIX IS HERE: Don't animate 'all', just colors and transforms! */
+    transition: background-color 0.2s ease, transform 0.2s ease; 
+    display: flex; 
+    align-items: center; 
+    justify-content: center;
 }
 #prompt-slot-fixed-btn:hover { background: #27272a; transform: translateY(-2px); }
 

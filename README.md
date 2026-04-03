@@ -1,138 +1,174 @@
+# 💥 Megumin Suite V5 for SillyTavern
 
+**The Ultimate Automated Prompt Management & Roleplay Configuration Engine.**
 
-# 💥 Megumin Suite v4.1 - Dev Mode And Bug fixes
-
----
-
-**Hello. Kazuma here.**
-
-So, you know how every single time you switch between RPs in SillyTavern, you spend like 10 minutes fiddling with your system prompt, toggles. just to download new card and start the process again. And let's be real General presets are so limited telling the ai a tag or a genre is not the same as building a full prompt Specifically for that RP. I got so unbelievably tired of that I built an entire extension to never deal with it again.
-
-Introducing Megumin Suite — the first SillyTavern preset that basically configures itself. You open a chat, click a button, pick some stuff from a pretty menu, and the Suite does the rest. Every character gets their own saved profile. Switch between your gritty dark fantasy campaign and your cozy slice-of-life RP? Boom. Already configured. Both of them. Separately. Without you touching a single prompt.
-
-Your time should go into the Story, not into menu hell. I did the boring nerd stuff so you don't have to. You're welcome btw.
+Megumin Suite completely revolutionizes how you manage your preset prompts, writing styles, and AI behavior in SillyTavern. No more manually toggling prompts on and off every time you switch from a gritty dark fantasy to a lighthearted romance. The engine automatically generates optimized rules tailored to your exact preferences, applying them dynamically on a **per-character basis**.
 
 ---
 
-## 🚀 What's New in v4.1?
-*   **Mobile UI Overhaul:** Mobile users, your UI is fixed. No more cut-off menus at the bottom of your screen. The sidebar is now a sleek, horizontally scrollable top bar that perfectly fits your phone.
-*   **Developer Mode:** Added a purple "Dev" button that lets you view and edit the raw prompt blocks on a per-character basis.
-*   **Lorebook Integration:** The Megumin Engine now reads active Lorebooks! If your character relies heavily on lore instead of their main description, the "Generate Insights" button will now actually see it and generate accurate style tags.
-*   **Insight Bug Dead:** Fixed the issue where clicking "Generate Insights" would rudely reply *"give me character description"* instead of working.
-*   **Language-Based CoT:** Chain of Thought is no longer locked to specific model names. It is now categorized by Language (English, Arabic, Spanish, etc.), which completely fixes the Arabic thinking translation issue.
-*   **Thinking Hide Script:** Added a toggle in Regex to completely hide the AI's thinking process from your screen if you don't even want it in a collapsible box.
+## 🤔 Why Do You Need Megumin Suite?
+
+Before Megumin Suite, changing how the AI writes — its length, its tone, the narrator's perspective — meant manually editing text boxes and swapping presets every single time. Megumin Suite automates all of that through a sleek wizard GUI.
+
+* **Global Defaults vs. Custom Profiles:** Set a "Global Default" configuration for all new chats. The moment you tweak a setting inside a specific character's chat, the ext creates an isolated **Custom Character Profile** that only affects *that* character, leaving your other roleplays untouched.
 
 ---
 
-## 📥 Installation
+## ✨ The Big Three: What Makes V5 Different
 
-1. Go to SillyTavern **Extensions** → **Install Extension** → Paste this repo URL.
-2. Download the two JSON files from this repo: `Megumin Suite V4.json` and `Megumin Engine.json`.
-https://github.com/Arif-salah/Megumin-Suite/tree/main/Presets
+### V5 Slice of Reality Mode
 
-![Screenshot 1: The Files](./Screenshots/1.png)
+This is the headline feature and the philosophy behind V5. Previous modes (V4 Balance, V4 Cinematic, V4 Dark) all worked well, but they still had a tendency to lean into AI clichés: NPCs that simp for you, consequences that don't stick, and scenarios where you magically end up with a villa and all the money in the world. **V5 Slice of Reality kills that.**
 
-> ⚠️ **MOBILE USERS CRITICAL STEP:** If you download these on your phone and your browser renames them to `.json.txt`, you **must** use a file manager to rename them and delete the `.txt` part. Furthermore, make sure the Engine file is named EXACTLY `Megumin Engine.json` before you import it. The Suite file's name doesn't matter, but the Engine must be exact.
+The goal isn't to make the story miserable or dramatic for the sake of it — it's to keep things **real** while preserving writing flavor and just enough drama to keep things interesting. It's the perfect balance.
 
-3. Open SillyTavern, go to the **API Connections** tab (the plug/sliders icon).
-4. Click the **Import Preset** button (the little folder with an arrow) and upload BOTH files.
+Here's how it works under the hood:
 
-![Screenshot 2: Import Button](./Screenshots/3.png)
+(the result may very depending on the model the smarter the better.)
 
-5. Once imported, open your preset dropdown and **make sure "Megumin Suite V4" is the active preset.** The extension handles the Engine silently in the background.
+#### The "Hands Off" Rule
+The user character (PC) is the only entity the AI doesn't control. It never narrates what you're thinking or feeling. It only controls how the **world and NPCs react** to your observable actions. Your thoughts are invisible. NPCs respond to what they *see* you do and *hear* you say — nothing more.
 
-![Screenshot 3: Active Preset](./Screenshots/4.png)
+#### The World Keeps Turning
+Time doesn't freeze when you stop typing. NPCs have jobs, secrets, and messy lives that continue off-screen. The engine fills silence with the texture of real life — a distant siren, a neighbor arguing. When an NPC's off-screen life bleeds into the current scene (a phone call they hang up quickly, an unexplained bad mood), the engine lets it happen without explaining it. The user gets to wonder.
 
----
+#### NPCs Are People, Not Quest-Givers
+This is where V5 really shines. NPCs operate on a **priority stack**:
+1. **The Hidden Layer** — What are they *actually* feeling deep down?
+2. **The History** — Do they trust the person in front of them?
+3. **The Pressure** — Is the environment making them act out?
+4. **The Goal** — What do they want and what are they aiming for?
 
-## 🪄 How to Use It (The Magic Wand)
+They run on **subtext**: nobody says exactly what they mean. If someone is hurt, they might get quiet instead of yelling. Emotions have **inertia** — you can't just say "sorry" and have everything reset. NPCs can lie, walk away, or shut down if they've had enough. They don't need the PC's permission to leave a room.
 
-Open any chat and look in the top right corner. See the magic wand? Click it.
+#### The Information Firewall
+NPCs only know what they have **witnessed** or been **told**. They cannot read minds. They can be *completely wrong* about things and act on those wrong assumptions with full confidence. This single rule eliminates 90% of the "omniscient NPC" problem that plagues most AI roleplay.
 
-![Screenshot 7: Magic Wand](./Screenshots/6.png)
+#### Physical Reality
+Bodies are fragile. If someone's cold, they shiver. If they're terrified, their hands shake. Violence is never "cool" — it's clumsy, scary, and leaves scars. When words fail, the engine uses raw vocalizations: gasps, stammered half-words, and the kind of involuntary sounds that people actually make under stress.
 
-This opens the Workflow Builder. It autosaves per-character. A few important notes on using it:
+#### The Never-Ending Scene
+V5 never cuts a scene just because your turn is done. It asks: *"What would this person do next?"* If an NPC is angry, maybe they slam the door. If they're worried, maybe they follow you. If you go to sleep, V5 shows what happened while you were out. Every response ends on a **hook**.
 
-### Stage 1: System Mode
-*   **V4 Balance ⭐** — Truth in human behavior. NPCs react proportionally. No simping, no needless hostility.
-*   **V4 Cinematic** — The AI is the director. It pushes the plot and introduces drama.
-*   **V4 Dark** — Balance but harsher. No narrative protection.
-
-### Stage 2: Personality & Toggles
-*   Pick the **Engine (Recommended)** for pure mechanical precision, or the Director/Megumin if you want the system to have a personality.
-*   Toggle OOC commentary or User Control restrictions.
-
-### Stage 3: Writing Style
-*   Select tags (Gothic, Slow-Burn, Purple Prose, etc.).
-*   Click **Generate Insights** to have the AI scan your character card (and lorebooks!) to suggest the perfect tags.
-*   Click **Generate Writing Rule** to compile them into a permanent prompt directive.
-
-### Stage 4: Add-ons & Language
-*   Toggle lethal combat, permanent death systems, and dialogue colors.
-*   **Language Output:** Type a language here if you want the AI to narrate the story in a specific language (Arabic, Spanish, French, etc.).
-*   **User Gender:** Force the AI to use your proper pronouns.
-
-### Stage 5: Format Blocks & Auto-Summary
-Pick what gets appended to the end of the AI's messages (Info block, Summary block, CYOA).
-
-> 💾 **How to Configure the Summary Block Depth:**
-> If you want to change how often the summary updates or how deep into the chat it reads:
-> 1. Go to the **Extensions** tab -> **Regex**.
-> 2. Find the `summary cleanup` script.
-> 3. Edit the **Min Depth** and **Max Depth** sliders.
-> 
-<p align="center">
-  <img src="./Screenshots/5.png" width="32%" />
-  <img src="./Screenshots/5.1.png" width="32%" />
-  <img src="./Screenshots/5.2.png" width="32%" />
-</p>
-
-### Stage 6: Chain of Thought (CoT) Language
-Select what language the AI uses *inside its hidden `<think>` tags*. 
-
-> 🗣️ **The "Two Languages" Rule:**
-> Setting Stage 6 to Spanish *only* makes the AI think in Spanish. If you want the AI to actually narrate the story to you in Spanish, you **must** also set the Language Output in Stage 4!
+> **TL;DR:** V5 Slice of Reality treats roleplay like a documentary instead of a Hollywood movie. NPCs have real emotions, real limitations, and real agency. The world doesn't revolve around you — and that's what makes the story feel *alive*.
 
 ---
 
-## 💻 Developer Mode & Custom Prompts
+### 🧠 Chain of Thought V2
 
-### 1. The Dev Mode UI
-At the bottom of the Suite, there is a purple **Dev** button. Clicking this exposes the raw prompt code for the entire profile. 
+Chain of Thought (CoT) forces the AI to **think before it writes**. Before generating any response, the model goes through a structured reasoning process inside `<think>` tags. V1 was the original 8-step framework that focused heavily on NPC emotional landscapes. **V2 is a complete redesign** built around catching the AI's worst habits in real-time.
 
-![Screenshot 9: Dev Mode UI](./Screenshots/8.png)
+#### How CoT V2 Works (The 7 Steps)
 
-*   You can rewrite any block of the prompt manually. 
-*   **You must click "Save Override"** to lock in your changes. The box will glow Gold and say "MODIFIED".
-*   If you mess up, click **"Restore Default"** to wipe your custom edit and pull the original pristine prompt back.
-*   **Saves Per Character:** If you do this while chatting with a character, it *only* applies to them. If you do this with no character selected (Modifying Global Default), every *new* character you talk to will inherit your custom code.
+1. **Reality Check (The "No-Go" Zones)**
+   * *Am I narrating the user's thoughts?* → Stop immediately.
+   * *Is this too convenient? Is the NPC acting like an information dump instead of a real person?* → The "Script Trap" detector catches when the AI is writing fan-fiction instead of believable behavior.
 
-### 2. Injecting Global "House Rules" (Add Your Custom Prompt Here)
-If you have global lore, formatting rules, or "House Rules" that you want injected into *every single chat* without having to mess with the UI or Dev Mode, I left a specific spot for you.
+2. **The Information Audit (Knowledge Check)**
+   * For each NPC, the AI must list what they *actually* know based on: what they saw with their own eyes, what someone else told them (reliably or not), and what they can reasonably guess from their personality.
+   * It then identifies the **gap** (what they *don't* know) and the **error** (are they acting on a wrong assumption?). Example: *"They saw the PC holding a knife, so they assume the PC is the killer, even though the PC was just picking it up."*
 
-1. Go to the SillyTavern **API Connections** tab.
-2. Select the **Megumin Suite V4** preset.
-3. Scroll down through the prompt blocks until you see the toggle: 
-   `<!-- Add Your Customer prompt here -->`
-4. Paste your rules directly below that line. They will safely inject into every RP without breaking the Suite's formatting.
+3. **NPCs Move**
+   * Every NPC must have a clear next move that serves *their own goal* — not the plot, not the user's expectations.
+
+4. **The Off-Screen Pulse**
+   * What happened in the background while the PC was busy? The clock never stops.
+
+5. **The Subtext Map (Author's View)**
+   * Surface vs. Undercurrent: What are they *saying* vs. what do they actually *want*?
+   * Physical Leak: How does the inner tension show in their body? (A clenched jaw, a barely hidden flinch, fingers tapping too fast.)
+
+6. **Writing Style & Pace Check**
+   * Did the AI actually follow the writing style rules you configured in Stage 3? This step forces self-compliance.
+
+7. **The Beat & The Hook**
+   * What is the specific "Pivot Point" the response ends on to force the user to respond? No more NPCs politely waiting in silence.
+
+#### Multilingual Support
+Both V1 and V2 support thinking in **8 languages**: English, Arabic, Spanish, French, Mandarin Chinese, Russian, Japanese, and Portuguese. The CoT process runs in your chosen language, but the final output respects your Language Output setting (defaults to English if left blank, which also prevents thinking-language leaking into the narrative).
+
+> **TL;DR:** CoT V2 is a bullshit detector for the AI. It forces the model to audit its own knowledge, check for convenience-writing, plan NPC actions around their own goals, and always end on a hook. The result is smarter, more consistent, and dramatically more believable roleplay.
 
 ---
 
-## ⚠️ FAQ & Troubleshooting
+### 🚫 Dynamic Ban List — *"Kill the Dead Language"*
 
-**Q: I'm getting a "Chat Completion API Error" / Provider Returned Error.**
-I test exclusively on Official APIs. Some models (like Gemini) need "Prefill" enabled. Some models (like Claude) **hate it** and will throw an error if you leave it on. If you are using local OpenAI-compatible APIs (like Ollama), disabling Prefill is usually required. Look for the Prefill toggle in your preset settings and flip it!
-![Screenshot 8: Prefill Toggle](./Screenshots/7.png)
+Every AI model has crutch phrases — those overused clichés it falls back on no matter what you do. *"A shiver ran down their spine." "They released a breath they didn't know they were holding." "Their eyes widened imperceptibly."* You know them. You hate them. The Dynamic Ban List Try to kill them.
 
-**Q: Global Defaults vs Character Profiles?**
-If you open the Suite WITHOUT a character selected, you're editing the **Global Default**. Any new character you start chatting with inherits this. If you open the Suite WITH a character selected, you're editing **that specific character's profile**. 
+#### How It Works
 
-**Q: Does this work with group chats?**
-It is heavily optimized for 1-on-1 RP right now. Group chat support is planned for the future.
+1. **Hit "Analyze Chat History"** — The engine pulls the last **50 AI messages** from your current chat, strips out all thinking blocks, summary blocks, and HTML formatting, and feeds the cleaned narrative text to the AI as a dedicated analysis task.
+
+2. **AI-Powered Pattern Detection** — Instead of just matching exact phrases, the engine asks the AI to act as a **literary critique** and identify the 5 most repetitive stylistic patterns or crutch phrases. The AI returns *generalized rules* — not just "she let out a breath" but **"Characters releasing breaths they didn't know they were holding"** as a pattern to ban.
+
+3. **Injected as Hard Rules** — Every banned phrase gets compiled into a `[BAN LIST]` block that's injected directly into the system prompt with the instruction: *"Never rely on these clichés, tropes, or repetitive patterns. They are dead language."* The AI sees this ban list on every single generation.
+
+4. **Manual Control** — You can also manually type and add any phrase or pattern you want banned. Each entry shows up as a red tag you can click to remove. Clear the whole list with one button if you want a fresh start.
 
 ---
 
-**Need more help?**
-Drop into my Discord server: https://discord.gg/wynRvhYx
+### 🎨 Complete Writing Style Overhaul — *"Your Personal Author's Room"*
 
-*Now go RP. Stop reading READMEs. Shoo.*
+Stage 3 has been completely rebuilt from the ground up. Gone is the old single-config screen. In its place is a full **Style Library** — a system for creating, saving, managing, and hot-swapping multiple writing style profiles.
+
+#### The Style Library
+The new UI is a clean, full-width vertical list that shows all your styles at a glance. Each style card shows:
+* The style name and a preview of its generated rule
+* Quick-action buttons: **Redo** (regenerate the rule), **Edit** (open the full editor), **Delete**
+
+#### 8 Pre-Configured Templates
+Don't want to start from scratch? Pick from the built-in template library and generate a complete writing style rule with a single click:
+
+| Template | Inspiration | Vibe |
+|---|---|---|
+| **The Backseat Narrator** | Lemony Snicket, Terry Pratchett | Opinionated narrator who pauses to editorialize |
+| **Overthinking Everything** | Dostoevsky | Deep internal monologue and moral spiraling |
+| **The Snarky Observer** | The Stanley Parable, GLaDOS | Dry, sarcastic narrator who mocks your choices |
+| **Thrones & Consequences** | George R.R. Martin | Political intrigue, mud, blood, and no plot armor |
+| **Something's Off** | Stephen King | Mundane details that slowly turn into creeping dread |
+| **Sweet Like Sugar** | — | Wholesome, warm, openly rooting for a happy ending |
+| **Simple and Plain** | — | No flowery prose. Straight to the point. |
+| **Popcorn Mode** | — | High-octane action, punchy sentences, nonstop tension |
+
+---
+
+### 🛠️ Bug Fixes, Dev Tools & Quality of Life
+
+* **Critical Bug Fix — Forbid Overrides:** Fixed a stupid error on my end where `Forbid Overrides` was left disabled. This meant some character cards were silently overwriting the main system prompts and ruining the output. Now locked down properly. use the new json files.
+* **chat group:** added chat group support.
+* **MVU Compatibility:** Added support for [MVU Game Maker](https://github.com/KritBlade/MVU_Game_Maker). Enable it as a block in Stage 5.
+* **Draggable Button:** The main extension button is now draggable. WOW.
+* **Global Dev Mode Toggle:** Introduced a global override switch. When enabled, saving or restoring a prompt override applies the change across **all profiles** (Characters, Groups, and Defaults) simultaneously.
+
+---
+
+## 🤖 Recommended AI Models
+
+For the best experience, use models with strong instruction-following and reasoning:
+
+*  **Gemini 3.1 pro**
+*  **Claude opus 4.6**
+*  **GLM 5 and 4.7**
+*  **Kimi k2.5** (Tested lightly, performs well)
+
+*Megumin Suite is flexible, but weaker models may struggle with the complex system rules the engine generates.*
+
+---
+
+## Install:
+ https://www.youtube.com/watch?v=Q-iaz9mBFrA
+
+---
+
+## ⚠️ Troubleshooting & Tips
+
+* **Thinking Block Won't Close:** If `<think>` tags bleed into the chat, enable the **Think Bug Toggle** in your settings.
+* **Generation Hanging / Formatting Issues:** Try **disabling "Prefill"** in your SillyTavern API settings.
+* **Does this extension mess with my other presets?** No — your other presets will work just fine. Megumin Suite only injects its rules into its own designated preset (`Megumin Suite`). Your existing presets remain completely untouched.
+* **Old Versions:** Legacy docs are here: [Megumin Suite Legacy Readme](https://github.com/Arif-salah/Megumin-Suite)
+
+---
+* [Ko-fi (Buy me a coffee)](https://ko-fi.com/kasumaoniisan)
+* **Crypto (LTC)**: `LSjf1DczHxs3GEbkoMmi1UWH2GikmXDtis`
+
+**Enjoy the ultimate SillyTavern roleplay experience with Megumin Suite V5.**
