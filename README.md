@@ -1,4 +1,4 @@
-
+![Nexa Screenshot](./img/default1.png)
 # 💥 Megumin Suite V6 for SillyTavern
 
 **The Ultimate Automated Prompt Management, Writers' Room & Roleplay Configuration Engine.**
