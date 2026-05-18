@@ -4,7 +4,7 @@
 <img src="Screenshots/banner.png" alt="Megumin Suite Banner" width="100%">
 
 [![SillyTavern](https://img.shields.io/badge/SillyTavern-1.12%2B-blue.svg?style=for-the-badge&logo=codeigniter)](https://github.com/SillyTavern/SillyTavern)
-[![Version](https://img.shields.io/badge/Version-V7_Beta-green.svg?style=for-the-badge)](#)
+[![Version](https://img.shields.io/badge/Version-V7-green.svg?style=for-the-badge)](#)
 [![License](https://img.shields.io/badge/License-CC%20BY--NC--ND%204.0-purple.svg?style=for-the-badge)](https://creativecommons.org/licenses/by-nc-nd/4.0/)
 
 > *"Everything your preset should have been: persistent memory, chain-of-thought reasoning, automated NPC tracking, and ComfyUI image generation in a single install."*
