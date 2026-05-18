@@ -84,7 +84,7 @@ Tired of the AI saying *"a shiver ran down your spine"* or *"testament to..."*?
    https://github.com/Arif-salah/Megumin-Suite
    ```
 5. Refresh SillyTavern.
-6. Download the two JSON files from this repo: https://github.com/Arif-salah/Megumin-Suite/tree/main/Presets
+6. Download the JSONs files from this repo: https://github.com/Arif-salah/Megumin-Suite/tree/main/Presets
 > ⚠️ **Note:** If you download these on your phone and your browser renames them to `.json.txt`, you **must** use a file manager to rename them and delete the `.txt` part. Furthermore, make sure the Engine file is named EXACTLY `Megumin Engine.json` before you import it. The Suite file's name doesn't matter, but the Engine must be exact.
 7. Open SillyTavern, go to the **Ai  Response configuration** tab.
 8. Click the **Import Preset** button (the little folder with an arrow) and upload the json files.
