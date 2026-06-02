@@ -11,7 +11,7 @@
 
 **Megumin Suite** is a full-stack overhaul to how SillyTavern presets work. It replaces your prompt engineering, your memory system, your NPC management, and your image pipeline — all in one extension. V7 adds advanced **Vector Memory**, automated **NPC Tracking**, and a strict **5-Phase Chain of Thought** reasoning framework.
 
-[Features](#-core-features) • [Installation](#-installation) • [The V7 Engine](#-the-v7-narrative-engines) • [Memory Core](#-memory-core-3-tier-context) • [Image Gen](#-image-gen-kazuma)
+[Features](#-core-features) • [Installation](#%EF%B8%8F-installation) • [The V7 Engine](#the-v7-engines) • [Memory Core](#-memory-core-3-tier-context) • [Image Gen](#image-gen-kazuma-comfyui)
 
 </div>
 
