@@ -2094,8 +2094,11 @@ function renderStoryPlanner(c) {
             }
 
             if (output) {
+                // Remove what's inside <think></think> because it might contain a <plot> block
+                const sanitizedOutput = output.replace(/<think>[\s\S]*?<\/think>/gi, '');
+
                 // Extract only what is inside <plot></plot>
-                const plotMatch = output.match(/<plot>([\s\S]*?)<\/plot>/i);
+                const plotMatch = sanitizedOutput.match(/<plot>([\s\S]*?)<\/plot>/i);
                 if (plotMatch) {
                     sp.currentPlan = plotMatch[1].trim();
                     $("#sp_current_plan").val(sp.currentPlan);
