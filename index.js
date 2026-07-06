@@ -5309,8 +5309,7 @@ function getChatHistoryForStoryPlan() {
     const context = getContext();
     if (!context.chat || context.chat.length === 0) return "";
 
-    // const messages = context.chat.filter(m => !m.is_system);
-    const messages = context.chat.filter(m => true);
+    const messages = context.chat.filter(m => !m.is_system);
     let cleaned_messages = [];
 
     for (let m of messages)
