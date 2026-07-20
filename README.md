@@ -10,7 +10,7 @@
 
 **Megumin Suite** is a full-stack overhaul to how SillyTavern presets work. It replaces your preset, your memory system, your NPC management, and your image generation — all in one extension. V9 introduces the new **Mirage**, **Xin**, **Kuromaku**, and **Cui** presets — a complete generational leap in narrative quality, psychology, and world simulation.
 
-[Features](#-core-features) • [Installation](#%EF%B8%8F-installation) • [The V9 Presets](#the-v9-presets) • [Memory Core](#-memory-core-3-tier-context) • [Image Gen](#image-gen-kazuma-comfyui)
+[Features](#-core-features) • [Installation](#%EF%B8%8F-installation) • [The V9 Presets](#the-v9-presets) • [Memory Core](#-Memory-Core (3-Tier Context)) • [Image Gen](#image-gen-kazuma-comfyui)
 
 </div>
 
