@@ -214,7 +214,7 @@ Or just watch the **Install video:** [YouTube Video](https://www.youtube.com/wat
 
 *   **Does this extension mess with my other presets?** No — your other presets work just fine. Megumin Suite only injects its rules into its own designated preset. Your existing presets remain completely untouched.
 *   **Vector Storage (Optional):** If you're using Semantic Embeddings in the Memory Core, you can change the model — it's `Cohee/jina-embeddings-v2-base-en` by default. If that's too heavy for your PC, use `Xenova/all-MiniLM-L6-v2`. Change it inside `sillytavern/config.yaml`.
-*   **Old Versions:** Legacy docs are available here: [V4](https://github.com/Arif-salah/Megumin-Suite/tree/V4.1) • [V5](https://github.com/Arif-salah/Megumin-Suite/tree/V5) • [V6](https://github.com/Arif-salah/Megumin-Suite/tree/V6) • [V7](https://github.com/Arif-salah/Megumin-Suite/tree/V7)
+*   **Old Versions:** Legacy docs are available here: [V4](https://github.com/Arif-salah/Megumin-Suite/tree/V4.1) • [V5](https://github.com/Arif-salah/Megumin-Suite/tree/V5) • [V6](https://github.com/Arif-salah/Megumin-Suite/tree/V6) • [V7](https://github.com/Arif-salah/Megumin-Suite/tree/V7) • [V8](https://github.com/Arif-salah/Megumin-Suite/tree/V8)
 
 ---
 
