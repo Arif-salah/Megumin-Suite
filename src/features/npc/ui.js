@@ -19,6 +19,36 @@ import { meguminActiveDataIdentity } from "../../core/keys.js";
 import { escapeHtmlAttr } from "../../utils/html.js";
 import { npcGeneratePfp } from "./pfp.js";
 
+// Everything on an NPC record can come from somewhere untrusted: an imported
+// pack, a shared chat file, or a story model talked into writing markup into a
+// dossier. So every value is escaped where it is drawn, and a portrait is only
+// drawn when it is exactly the kind upload and ComfyUI store: an image data URL.
+const escv = (v) => escapeHtmlAttr(v == null ? "" : v);
+const SAFE_PFP = /^data:image\/(png|jpe?g|webp);base64,[A-Za-z0-9+/=]+$/;
+const safePfp = (v) => (typeof v === "string" && SAFE_PFP.test(v)) ? v : "";
+
+// An imported NPC, reduced to the shape the bank expects. Not the XSS guard
+// (drawing escapes everything anyway), but a file with a number where a name
+// goes or an object for a history should not break the tab later.
+function npcCleanImported(raw) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const out = {};
+    for (const [k, v] of Object.entries(raw)) {
+        if (k === "history" || k === "pfp" || k === "imageOnly" || k === "timestamp" || k === "messageIndex") continue;
+        if (typeof v === "string") out[k] = v;
+        else if (typeof v === "number" || typeof v === "boolean") out[k] = String(v);
+    }
+    if (!(out.name || "").trim()) return null;
+    out.pfp = safePfp(raw.pfp);
+    out.imageOnly = raw.imageOnly === true;
+    out.timestamp = Number.isFinite(raw.timestamp) ? raw.timestamp : Date.now();
+    out.messageIndex = Number.isInteger(raw.messageIndex) && raw.messageIndex >= 0 ? raw.messageIndex : 0;
+    out.history = Array.isArray(raw.history)
+        ? raw.history.filter(e => e && typeof e === "object" && !Array.isArray(e))
+        : [];
+    return out;
+}
+
 export function renderNpcBank(c) {
     c.empty();
     const nb = localProfile.npcBank;
@@ -224,9 +254,14 @@ export function renderNpcBank(c) {
         const reader = new FileReader();
         reader.onload = function(evt) {
             try {
-                const data = JSON.parse(evt.target.result);
-                if (!Array.isArray(data)) {
+                const parsed = JSON.parse(evt.target.result);
+                if (!Array.isArray(parsed)) {
                     toastr.error("Invalid NPC Bank file format.");
+                    return;
+                }
+                const data = parsed.map(npcCleanImported).filter(Boolean);
+                if (!data.length) {
+                    toastr.error("No usable NPCs in that file.");
                     return;
                 }
                 if (confirm("Do you want to merge imported NPCs with your existing ones? (Click 'Cancel' to overwrite)")) {
@@ -497,10 +532,11 @@ export function renderNpcList() {
     [...npcs].reverse().forEach((n, revIdx) => {
         const idx = npcs.length - 1 - revIdx;
         const dateStr = new Date(n.timestamp).toLocaleDateString();
-        const pfpSrc = n.pfp || "";
+        const pfpSrc = escv(safePfp(n.pfp));
+        const name = escv(n.name);
 
         // Dynamic color based on sex: Blue for male, Red/pink for female/other
-        const isMale = (n.sex || "").trim().toLowerCase().startsWith("m");
+        const isMale = String(n.sex || "").trim().toLowerCase().startsWith("m");
         const accentColor = isMale ? "#3b82f6" : "#f43f5e";
         const accentRgba = isMale ? "59,130,246" : "244,63,94";
         const gradientFrom = isMale ? "rgba(59,130,246,0.15)" : "rgba(244,63,94,0.15)";
@@ -510,11 +546,11 @@ export function renderNpcList() {
 
         let fieldsHTML = "";
         npcFieldMeta.forEach(fm => {
-            const val = n[fm.key] || "";
+            const val = escv(n[fm.key]);
             fieldsHTML += `
                 <div class="npc-field-section" style="margin-bottom: 6px;">
                     <div style="font-size: 0.65rem; color: ${fm.color}; font-weight: 600; margin-bottom: 2px; display: flex; align-items: center; gap: 4px;">
-                        <i class="fa-solid ${fm.icon}" style="font-size: 0.6rem;"></i> ${fm.label}
+                        <i class="fa-solid ${fm.icon}" style="font-size: 0.6rem;"></i> ${escv(fm.label)}
                     </div>
                     <textarea class="ps-modern-input npc_field_edit" data-idx="${idx}" data-field="${fm.key}"
                         style="height: ${fm.tall ? '60' : '32'}px; resize: vertical; font-size: 0.7rem; padding: 4px 6px; background: rgba(0,0,0,0.25); border: 1px solid rgba(255,255,255,0.06); border-radius: 6px; line-height: 1.3;"
@@ -531,9 +567,9 @@ export function renderNpcList() {
                     <div style="display: flex; align-items: center; gap: 8px;">
                         <i class="fa-solid fa-chevron-right npc-chevron" style="font-size: 0.6rem; color: ${accentColor}; transition: transform 0.2s;"></i>
                         ${miniPfp}
-                        <span style="font-size: 0.85rem; font-weight: 700; color: ${accentColor};">${n.name}</span>
+                        <span style="font-size: 0.85rem; font-weight: 700; color: ${accentColor};">${name}</span>
                         <button class="npc_edit_name_btn" data-idx="${idx}" style="background: transparent; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.7rem; padding: 2px 4px; margin-left: -4px;" title="Edit Name"><i class="fa-solid fa-pen"></i></button>
-                        <span class="npc_edit_vitals_btn" data-idx="${idx}" style="font-size: 0.6rem; color: var(--text-muted); background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; cursor: pointer;" title="Edit age, sex and orientation">${n.age || "?"} · ${n.sex || "?"} <i class="fa-solid fa-pen" style="font-size: 0.5rem; opacity: 0.6;"></i></span>
+                        <span class="npc_edit_vitals_btn" data-idx="${idx}" style="font-size: 0.6rem; color: var(--text-muted); background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 4px; cursor: pointer;" title="Edit age, sex and orientation">${escv(n.age) || "?"} · ${escv(n.sex) || "?"} <i class="fa-solid fa-pen" style="font-size: 0.5rem; opacity: 0.6;"></i></span>
                     </div>
                     <div style="display: flex; align-items: center; gap: 12px;">
                         <!-- New Image Tags Only Toggle -->
@@ -558,11 +594,11 @@ export function renderNpcList() {
                             <div class="npc-pfp-container" style="width: 160px; height: 240px; border-radius: 10px; overflow: hidden; border: 2px solid rgba(${accentRgba},0.3); background: rgba(0,0,0,0.4);">
                                 ${pfpDisplay}
                             </div>
-                            <div style="text-align: center; font-size: 0.95rem; font-weight: 800; color: ${accentColor}; margin-top: 2px; margin-bottom: 2px; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${n.name}</div>
+                            <div style="text-align: center; font-size: 0.95rem; font-weight: 800; color: ${accentColor}; margin-top: 2px; margin-bottom: 2px; text-shadow: 0 1px 2px rgba(0,0,0,0.5);">${name}</div>
                             <button class="npc_upload_pfp" data-idx="${idx}" style="width: 100%; font-size: 0.65rem; padding: 4px 0; border-radius: 6px; border: 1px solid rgba(${accentRgba},0.3); background: rgba(${accentRgba},0.1); color: ${accentColor}; cursor: pointer; transition: background 0.2s;" title="Upload Image">
                                 <i class="fa-solid fa-upload"></i> Upload
                             </button>
-                            <button class="npc_gen_pfp" data-idx="${idx}" data-name="${n.name}" style="width: 100%; font-size: 0.65rem; padding: 4px 0; border-radius: 6px; border: 1px solid rgba(168,85,247,0.3); background: rgba(168,85,247,0.1); color: #a855f7; cursor: pointer; transition: background 0.2s;" title="Generate with ComfyUI">
+                            <button class="npc_gen_pfp" data-idx="${idx}" data-name="${name}" style="width: 100%; font-size: 0.65rem; padding: 4px 0; border-radius: 6px; border: 1px solid rgba(168,85,247,0.3); background: rgba(168,85,247,0.1); color: #a855f7; cursor: pointer; transition: background 0.2s;" title="Generate with ComfyUI">
                                 <i class="fa-solid fa-wand-magic-sparkles"></i> Generate
                             </button>
                         </div>
@@ -653,7 +689,7 @@ export function renderNpcList() {
                 </div>
             `);
 
-            const confirmed = await new Popup($form, POPUP_TYPE.CONFIRM, `Edit ${npc.name}`, { okButton: "Save", cancelButton: "Cancel" }).show();
+            const confirmed = await new Popup($form, POPUP_TYPE.CONFIRM, `Edit ${escv(npc.name)}`, { okButton: "Save", cancelButton: "Cancel" }).show();
             if (!confirmed) return;
 
             vitals.forEach(f => {
