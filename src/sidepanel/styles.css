@@ -1750,3 +1750,9 @@ body.meg-sp-hide-inline .mes_text details.meg-sp-tracker-block { display: none !
     white-space: nowrap;
     font-weight: 400;
 }
+
+/* Block sections (fork): the chat card's panes, hosted in the panel */
+.meg-sp-blocks { display: flex; flex-direction: column; gap: 10px; }
+.meg-sp-block .meg-block-body { padding: 0; }
+.meg-sp-block-name { font-size: 0.78rem; font-weight: 700; opacity: 0.85; margin: 0 0 4px; }
+.meg-sp-block-cut { opacity: 0.75; }

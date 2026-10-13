@@ -4813,3 +4813,10 @@
 @media (prefers-reduced-motion: reduce) {
     .dock-icon.has-notice i::after { animation: none; }
 }
+
+/* Portrait avatar on the World State card (auto portraits) */
+.meg-ws-av.meg-av-img { padding: 0; overflow: hidden; }
+.meg-ws-av.meg-av-img img {
+  width: 100%; height: 100%; object-fit: cover; object-position: center top;
+  border-radius: 50%; display: block;
+}

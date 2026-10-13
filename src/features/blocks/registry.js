@@ -272,9 +272,17 @@ export function meguminBlocksTakenByPanel() {
     if (!cfg || !cfg.enabled || !cfg.hideInline) return [];
 
     const sections = cfg.sections || {};
-    return Object.entries(MEGUMIN_PANEL_SECTION_BY_BLOCK)
+    const taken = Object.entries(MEGUMIN_PANEL_SECTION_BY_BLOCK)
         .filter(([, sec]) => (sections[sec] ? sections[sec].visible !== false : true))
         .map(([blockId]) => blockId);
+    // Block sections (this fork): every other block the panel draws through its
+    // generic sections is taken as well, so nothing is on screen twice.
+    meguminRenderRegistry().forEach(def => {
+        if (!def || !def.id || MEGUMIN_PANEL_SECTION_BY_BLOCK[def.id]) return;
+        const sec = sections["block:" + def.id];
+        if (!sec || sec.visible !== false) taken.push(def.id);
+    });
+    return taken;
 }
 
 // -------------------------------------------------------------

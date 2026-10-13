@@ -12,7 +12,6 @@ import {
     resetSectionLayout, getOrderedSections, getPresentBarSettings, applyPresentBarChange,
     refreshSidePanel, refreshPresentBar,
 } from "../../sidepanel/panel.js";
-import { SECTION_REGISTRY } from "../../sidepanel/sections.js";
 
 export function renderSidePanelTab(c) {
     c.empty();
@@ -47,15 +46,13 @@ export function renderSidePanelTab(c) {
             ${enabledBadge}
         </div>
 
-        <div class="mtab-callout red" style="margin-bottom: 16px;">
-            <i class="fa-solid fa-triangle-exclamation"></i>
-            <span><strong>Discontinued.</strong> Blocks do this better &mdash; a nicer card, far more
-            you can change about it, and it keeps up with new blocks as they land. And frankly,
-            Kazuma doesn't like the side panel.
-            <br><br>So it is no longer being developed and has not kept up: newer blocks, custom
-            blocks and the stat blocks may not appear in it, or may appear wrong. It still works for
-            what it already knew about, and everything it shows is drawn in the chat card
-            regardless.</span>
+        <div class="mtab-callout green" style="margin-bottom: 16px;">
+            <i class="fa-solid fa-heart"></i>
+            <span><strong>Maintained by LukaTheHero</strong> in this fork. Upstream stopped developing the
+            panel; here it keeps up with everything the chat card can draw. Every block in the stack
+            &mdash; Choices, Dice, Bonds, Character Sheet, NPC updates and any custom block you add in
+            the BLOCKS tab &mdash; gets its own section, drawn by the same renderers as the card, so new
+            blocks show up here automatically. Toggle and reorder them below like any other section.</span>
         </div>
 
         <div class="mtab-toggle-row ${cfg.enabled ? 'active' : ''}" id="megsp_enabled_row" style="margin-bottom: 20px;">

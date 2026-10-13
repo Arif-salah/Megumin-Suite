@@ -144,6 +144,14 @@ export function renderImageGen(c) {
                     <div class="ps-switch"></div>
                 </div>
 
+                <div class="mtab-toggle-row ${s.autoPortraits ? 'active' : ''}" id="ig_auto_portraits_card" style="padding: 12px 18px; margin-bottom: 15px;">
+                    <div class="toggle-info">
+                        <div class="toggle-label" style="font-size:0.85rem;">Generate Portraits for Every New Character Automatically</div>
+                        <div class="toggle-desc">After each reply, every character present in the scene without a portrait gets one rendered in the background, banked or not. Portraits show in the NPC Bank, Present Characters and the World State card.</div>
+                    </div>
+                    <div class="ps-switch"></div>
+                </div>
+
                 <div id="ig_prompt_builder" style="background: rgba(0,0,0,0.15); padding: 15px; border-radius: 10px; border-left: 3px solid var(--gold);">
                     <div style="display: flex; gap: 15px; margin-bottom: 10px; align-items: center; flex-wrap: wrap;">
                         <div style="flex: 2; min-width: 150px;">
@@ -382,6 +390,13 @@ export function renderImageGen(c) {
         saveProfileToMemory();
         if (s.previewPrompt) $(this).addClass("active");
         else $(this).removeClass("active");
+    });
+
+    $("#ig_auto_portraits_card").on("click", function () {
+        s.autoPortraits = !s.autoPortraits;
+        saveProfileToMemory();
+        $(this).toggleClass("active", Boolean(s.autoPortraits));
+        if (s.autoPortraits) toastr.info("Auto portraits on. Every character in the scene gets a portrait after each reply while ComfyUI is running.", "Megumin Suite");
     });
 
     // Inputs

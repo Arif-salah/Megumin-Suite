@@ -14,6 +14,9 @@
  */
 
 import { el, escapeHtml, isMaleSex, avatarNode } from "./dom.js";
+import { extractBlocks, buildBlockPane } from "../blocks/render.js";
+import { MEGUMIN_PANEL_SECTION_BY_BLOCK, meguminRenderRegistry, meguminStatFieldMap } from "../features/blocks/registry.js";
+import { meguminApplyChoice } from "../features/blocks/chat.js";
 
 // The panel mirrors one chat. Three of the sections below draw from the saved
 // profile rather than from a message, and the profile is still there when no chat
@@ -129,7 +132,7 @@ function renderInnerChatter(ctx) {
         const banked = ctx.lookupBankedNpc(g.name);
         wrap.appendChild(el("div", { class: "meg-sp-thought" },
             el("div", { class: "meg-sp-thought-avatar" },
-                avatarNode(banked, g.name),
+                avatarNode(banked, g.name, { portrait: false }),
                 el("div", { class: "meg-sp-thought-bubbles" },
                     el("div", { class: "meg-sp-bubble meg-sp-bubble-2" }),
                     el("div", { class: "meg-sp-bubble meg-sp-bubble-1" }),
@@ -407,3 +410,67 @@ export const SECTION_REGISTRY = [
         badge: (ctx) => ctx.profile?.banList?.length || null,
     },
 ];
+
+// -----------------------------------------------------------------------------
+// Block sections — one panel section per block the chat card can draw.
+// Maintained by LukaTheHero for this fork.
+//
+// The native sections above know four blocks by hand (World State, Inner
+// Chatter, New NPC dossiers, Story Tracker). Everything else in the block
+// registry — Choices, Dice, Bonds, Character Sheet, NPC Updates and any custom
+// block added in the BLOCKS tab — gets a section here, drawn by the very same
+// pane builder the chat card uses. A block the card learns, the panel learns
+// with it; nothing in this file has to change when a new one lands.
+// -----------------------------------------------------------------------------
+export const BLOCK_SECTION_PREFIX = "block:";
+export function blockSectionId(blockId) { return BLOCK_SECTION_PREFIX + blockId; }
+export function isBlockSectionId(id) { return typeof id === "string" && id.startsWith(BLOCK_SECTION_PREFIX); }
+
+function blocksInLastReply(ctx, def) {
+    const raw = ctx?.parsed?.rawText || "";
+    try {
+        return extractBlocks(raw, [def]).filter(b => (b.def.visibility || "open") !== "hidden");
+    } catch (e) {
+        return [];
+    }
+}
+
+function renderBlockSection(ctx, def) {
+    const blocks = blocksInLastReply(ctx, def);
+    if (!blocks.length) return null;
+    const wrap = el("div", { class: "meg-sp-blocks" });
+    for (const b of blocks) {
+        const item = el("div", { class: "meg-sp-block" + (b.truncated ? " meg-sp-block-cut" : "") });
+        if (b.name) item.appendChild(el("div", { class: "meg-sp-block-name" }, b.name));
+        item.appendChild(buildBlockPane(b, document, {
+            onChoice: meguminApplyChoice,
+            statFields: meguminStatFieldMap(),
+        }));
+        wrap.appendChild(item);
+    }
+    return wrap;
+}
+
+export function blockSections() {
+    let registry = [];
+    try { registry = meguminRenderRegistry() || []; } catch (e) { return []; }
+    const native = new Set(Object.keys(MEGUMIN_PANEL_SECTION_BY_BLOCK));
+    return registry
+        .filter(def => def && def.id && def.tag && !native.has(def.id))
+        .map((def, i) => ({
+            id: blockSectionId(def.id),
+            icon: def.icon || "fa-cube",
+            title: def.label || def.name || def.tag,
+            defaultOpen: true,
+            order: 100 + i,
+            block: def,
+            render: (ctx) => renderBlockSection(ctx, def),
+            badge: (ctx) => { const n = blocksInLastReply(ctx, def).length; return n > 1 ? n : null; },
+        }));
+}
+
+// Everything the panel can show right now: the hand-written sections plus one
+// per block. Read fresh each time, because custom blocks come and go.
+export function allSections() {
+    return [...SECTION_REGISTRY, ...blockSections()];
+}

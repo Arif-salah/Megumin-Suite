@@ -27,7 +27,7 @@ import { npcDecorateUpdatePane } from "../npc/updateCard.js";
 // and the reader almost always wants to add to it — "3. Follow her out" becomes
 // "Follow her out, but hang back at the door". Shift sends as-is for the times
 // they do not.
-function meguminApplyChoice(text, { send = false } = {}) {
+export function meguminApplyChoice(text, { send = false } = {}) {
     const ta = document.getElementById("send_textarea");
     if (!ta) return;
 

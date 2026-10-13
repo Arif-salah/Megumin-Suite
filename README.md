@@ -111,7 +111,7 @@ Two engines, two styles. Pick the one that sound like the story you want to read
 ### Blocks
 Every tracker in one card under the reply with a tab for each one — World State, CYOA, NPC Inner Chatter, Bonds, Character Sheet, Story Tracker, New NPC dossiers, NPC updates and Dice. Pick which ones ride along, what order they come in, and if each one is shown or hidden, all in the **BLOCKS** tab. You can add your own with a custom tag and template.
 
-> 📝 **Note:** The **Side Panel** is discontinued. It still work for the blocks it already knew about but it wont learn the new ones, and everything it show is already drawn in the chat card anyway.
+> 📝 **Note (this fork):** The **Side Panel** is maintained by LukaTheHero. Every block the chat card can draw — including Bonds, Character Sheet, Choices, Dice, NPC updates and custom blocks — gets its own panel section, rendered by the same code as the card, so new blocks appear in the panel automatically.
 
 ### Automated NPC Bank
 A persistent character database that tracks every NPC accurately across sessions.

@@ -289,6 +289,45 @@ function renderTreated(b, opts) {
     }
 }
 
+// One pane for one block. Three ways it can be drawn, in order of how specific
+// they are.
+//
+// Choices are buttons and need handlers, so they are built as DOM. Everything
+// else a treatment handles produces a string. Anything with no treatment — or
+// whose treatment declined the body — is the plain markdown the card has
+// always drawn.
+// Truncated bodies are refused here for the same reason renderTreated refuses
+// them, and one reason more: a cut-off block takes the rest of the reply as its
+// body, and buttons are the one thing on this card the reader can send. Prose
+// that arrived in the wrong place is a placement problem; a button carrying
+// someone's secret is not.
+//
+// Shared by the chat card and by the side panel's block sections, so a block
+// the card learns to draw, the panel draws the same way the same day.
+export function buildBlockPane(b, doc, opts = {}) {
+    const pane = doc.createElement("div");
+    pane.className = "meg-block-body";
+    pane.setAttribute("data-block-id", b.def.id);
+    if (b.truncated) pane.classList.add("meg-block-truncated");
+    const parsedChoices = b.def.id === CHOICES_ID && !b.truncated ? parseChoices(b.body) : null;
+    if (parsedChoices) {
+        renderChoicesInto(pane, parsedChoices, doc, opts);
+    } else {
+        const treated = renderTreated(b, opts);
+        // The treatment's class goes on only when the treatment actually drew
+        // something. Putting it on unconditionally would style a prose fallback
+        // with the scene board's layout rules.
+        if (treated) {
+            const t = BLOCK_TREATMENTS[b.def.id];
+            if (t && t.cls) pane.classList.add(t.cls);
+            pane.innerHTML = treated;
+        } else {
+            pane.innerHTML = renderBody(b.body);
+        }
+    }
+    return pane;
+}
+
 // One card for the whole set: a strip of tabs across the top, one panel below.
 // Shared by the chat and by the preview in the BLOCKS tab — a preview rendered
 // by different code from the chat is worse than no preview, because it is
@@ -375,39 +414,8 @@ export function buildBlocksCard(blocks, opts = {}) {
         tabs.appendChild(btn);
         buttons.push(btn);
 
-        const pane = doc.createElement("div");
-        pane.className = "meg-block-body";
+        const pane = buildBlockPane(b, doc, opts);
         pane.dataset.key = key;
-        pane.setAttribute("data-block-id", b.def.id);
-        if (b.truncated) pane.classList.add("meg-block-truncated");
-
-        // Three ways a pane can be drawn, in order of how specific they are.
-        //
-        // Choices are buttons and need handlers, so they are built as DOM.
-        // Everything else a treatment handles produces a string. Anything with
-        // no treatment — or whose treatment declined the body — is the plain
-        // markdown the card has always drawn.
-        // Truncated bodies are refused here for the same reason renderTreated
-        // refuses them, and one reason more: a cut-off block takes the rest of
-        // the reply as its body, and buttons are the one thing on this card the
-        // reader can send. Prose that arrived in the wrong place is a placement
-        // problem; a button carrying someone's secret is not.
-        const parsedChoices = b.def.id === CHOICES_ID && !b.truncated ? parseChoices(b.body) : null;
-        if (parsedChoices) {
-            renderChoicesInto(pane, parsedChoices, doc, opts);
-        } else {
-            const treated = renderTreated(b, opts);
-            // The treatment's class goes on only when the treatment actually
-            // drew something. Putting it on unconditionally would style a prose
-            // fallback with the scene board's layout rules.
-            if (treated) {
-                const t = BLOCK_TREATMENTS[b.def.id];
-                if (t && t.cls) pane.classList.add(t.cls);
-                pane.innerHTML = treated;
-            } else {
-                pane.innerHTML = renderBody(b.body);
-            }
-        }
         panel.appendChild(pane);
         panels.push(pane);
     });

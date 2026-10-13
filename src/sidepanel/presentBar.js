@@ -14,6 +14,7 @@
 
 import { extension_settings } from "../../../../../extensions.js";
 import { saveSettingsDebounced } from "../../../../../../script.js";
+import { resolvePortrait } from "../core/portraits.js";
 
 const EXT_NAME = "Megumin-Suite";
 const SETTINGS_KEY = "presentBar";
@@ -178,7 +179,7 @@ function applyCardSize() {
 function cardHtml(entry) {
     const name = entry.name || "NPC";
     const banked = entry.banked || null;
-    const portrait = banked && banked.pfp ? banked.pfp : "";
+    const portrait = banked && banked.pfp ? banked.pfp : resolvePortrait(name);
     const male = banked ? isMaleSex(banked.sex) : null;
     const accent = male === true ? "meg-pb-card-male"
                   : male === false ? "meg-pb-card-female"
@@ -310,7 +311,7 @@ export function openCharacterSheet(name) {
     const banked = entry.banked || null;
 
     // Portrait
-    const portrait = banked && banked.pfp ? banked.pfp : "";
+    const portrait = banked && banked.pfp ? banked.pfp : resolvePortrait(name);
     const initial = (entry.name || "?").trim().charAt(0).toUpperCase();
     const male = banked ? isMaleSex(banked.sex) : null;
     const accentClass = male === true ? "meg-pb-sheet-male"

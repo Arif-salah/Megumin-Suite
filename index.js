@@ -116,6 +116,7 @@ import { memGetCachedKeywords } from "./src/features/memory/keywords.js";
 import { memUpdateSemanticQueryDebounced, memEnsureSemanticQueryFresh } from "./src/features/memory/vectordb.js";
 import { npcBuildTextFromData, npcParseBlock, meguminFindNpcDossiers, getRelevantNpcImageTags, npcCreateRecord } from "./src/features/npc/data.js";
 import { npcGeneratePfp } from "./src/features/npc/pfp.js";
+import { scheduleAutoPortraits } from "./src/features/portraits/auto.js";
 import { npcParseUpdateBlocks, npcApplyUpdates, npcUndoHistoryEntry } from "./src/features/npc/updates.js";
 import { renderNpcBank, renderNpcList } from "./src/features/npc/ui.js";
 import {
@@ -644,6 +645,9 @@ jQuery(async () => {
 
                 const lastMsg = chat[chat.length - 1];
                 if (lastMsg.is_user || lastMsg.is_system) return;
+                // Auto portraits for everyone the reply put in the scene, banked or not.
+                // Runs in the background and never blocks the image tags handled below.
+                setTimeout(() => scheduleAutoPortraits(), 400);
 
                 // Look for the <img prompt="..."> tags in the AI's response (supports multiple)
                 const imgRegexGlobal = /<img[^>]*?prompt=(["']?)([\s\S]*?)(?:\1\s*\/?>|\1\s*>|\1\s+[a-zA-Z]+=| \/>|>|$)/ig;

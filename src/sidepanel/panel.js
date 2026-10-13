@@ -22,7 +22,7 @@ import {
 
 import { findLastAssistantMessage, getParsedBlockCounts, getParsedBlockTypes, parseMessage, parseStoryTracker } from "./parsers.js";
 import { el } from "./dom.js";
-import { SECTION_REGISTRY } from "./sections.js";
+import { allSections } from "./sections.js";
 import {
     initPanelChrome,
     applyLayout,
@@ -91,7 +91,7 @@ function migrateSidePanelSettings(cur) {
     // Keyed on the actual saved shape, NOT schemaVersion — the generic
     // defaults backfill stamps schemaVersion: 2 before we run, so a
     // version check would always pass and the migration would never fire.
-    for (const def of SECTION_REGISTRY) {
+    for (const def of allSections()) {
         const v = cur.sections[def.id];
         if (typeof v === "boolean") {
             cur.sections[def.id] = { visible: v, open: def.defaultOpen, order: def.order };
@@ -118,7 +118,7 @@ function settings() {
         }
         migrateSidePanelSettings(cur);
         // Backfill sections added after migration stamped v2
-        for (const sd of SECTION_REGISTRY) {
+        for (const sd of allSections()) {
             if (cur.sections[sd.id] === undefined) {
                 cur.sections[sd.id] = { visible: true, open: sd.defaultOpen, order: sd.order };
             }
@@ -178,7 +178,7 @@ function buildPanelSkeleton() {
     const body = el("div", { class: "meg-sp-body" });
     body.appendChild(el("div", { class: "meg-sp-empty", id: "meg-sp-empty" },
         el("i", { class: "fa-solid fa-hat-wizard" }),
-        el("p", {}, "No tracker data yet. The panel updates whenever the AI emits a World State or NPC Inner Chatter block."),
+        el("p", {}, "No tracker data yet. The panel updates whenever the AI emits its Blocks section."),
     ));
     body.appendChild(el("div", { class: "meg-sp-sections", id: "meg-sp-sections" }));
 
@@ -312,7 +312,7 @@ function buildSectionCtx() {
 }
 
 export function getOrderedSections(cfg) {
-    return [...SECTION_REGISTRY].sort((a, b) =>
+    return [...allSections()].sort((a, b) =>
         (cfg.sections[a.id]?.order ?? a.order) - (cfg.sections[b.id]?.order ?? b.order));
 }
 
@@ -498,7 +498,7 @@ function render() {
                 const notice = unreadableBlockNotice(unreadable);
                 p.textContent = hasData
                     ? "All sections are hidden. Re-enable them in the Side Panel settings tab."
-                    : (notice || "No tracker data yet. The panel updates whenever the AI emits a World State or NPC Inner Chatter block.");
+                    : (notice || "No tracker data yet. The panel updates whenever the AI emits its Blocks section.");
             }
             empty.style.display = "";
         }
@@ -536,7 +536,7 @@ export function applySectionOrder(ids) {
 
 export function resetSectionLayout() {
     const cfg = settings();
-    for (const def of SECTION_REGISTRY) {
+    for (const def of allSections()) {
         cfg.sections[def.id] = { visible: true, open: def.defaultOpen, order: def.order };
     }
     persist();
@@ -1484,7 +1484,7 @@ function installDebugHandle() {
             parseLast: () => buildSectionCtx().parsed,
             cast: buildPresentCast,
             sections: {
-                registry: SECTION_REGISTRY,
+                get registry() { return allSections(); },
                 order: () => getOrderedSections(settings()).map(d => d.id),
                 setOrder: applySectionOrder,
                 reset: resetSectionLayout,

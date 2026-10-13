@@ -7,6 +7,7 @@
 
 import { getContext } from "../../st.js";
 import { localProfile } from "../../core/state.js";
+import { adoptPortraitIntoRecord } from "../../core/portraits.js";
 import { memGetCachedKeywords } from "../memory/keywords.js";
 import { escapeRegex } from "../../utils/regex.js";
 import { npcFields, npcFieldByRole, npcBodyFields, npcVitalsFields } from "./fields.js";
@@ -62,6 +63,8 @@ export function npcCreateRecord({ parsed = {}, name = "", messageIndex = 0 } = {
 
     record.imageOnly = false;
     record.pfp = "";
+    // A face made for this character before it was banked belongs on the record.
+    adoptPortraitIntoRecord(record);
     record.timestamp = Date.now();
     record.messageIndex = messageIndex;
     // Every change an <NPC_Update> block has applied to this NPC, newest last.
