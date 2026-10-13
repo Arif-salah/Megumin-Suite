@@ -184,6 +184,7 @@ export function initProfile() {
         imageGen: {
             enabled: false,
             generatorBackend: "direct",
+            receiveMode: "poll",
             injectMode: "inline",
             imageCount: 1,
             comfyUrl: "http://127.0.0.1:8188",
@@ -331,6 +332,7 @@ export function initProfile() {
     if (localProfile.imageGen.loraTrigger2 === undefined) localProfile.imageGen.loraTrigger2 = "";
     if (localProfile.imageGen.loraTrigger3 === undefined) localProfile.imageGen.loraTrigger3 = "";
     if (localProfile.imageGen.loraTrigger4 === undefined) localProfile.imageGen.loraTrigger4 = "";
+    if (localProfile.imageGen.receiveMode === undefined) localProfile.imageGen.receiveMode = "poll";
     if (localProfile.imageGen.loraTriggersMap === undefined) localProfile.imageGen.loraTriggersMap = {};
     if (localProfile.imageGen.promptStyle !== undefined) {
         let style = localProfile.imageGen.promptStyle; 

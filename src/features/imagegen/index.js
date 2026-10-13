@@ -27,7 +27,7 @@ import { useMeguminEngine } from "../../engine/tasks.js";
 import { KAZUMA_PLACEHOLDERS, RESOLUTIONS } from "../../../data/image_data.js";
 import { getRelevantNpcImageTags } from "../npc/data.js";
 import { meguminScheduleBlocksRefresh } from "../blocks/chat.js";
-import { makeComfyClientId, openComfyProgressSocket } from "./comfyProgress.js";
+import { makeComfyClientId, openComfyProgressSocket, decodeComfyImageFrame } from "./comfyProgress.js";
 
 export function renderImageGen(c) {
     c.empty();
@@ -98,6 +98,16 @@ export function renderImageGen(c) {
                     <button id="ig_new_wf" class="ps-modern-btn secondary" title="New Workflow"><i class="fa-solid fa-plus"></i></button>
                     <button id="ig_edit_wf" class="ps-modern-btn secondary" title="Edit JSON"><i class="fa-solid fa-pen"></i></button>
                     <button id="ig_del_wf" class="ps-modern-btn secondary" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.3);" title="Delete"><i class="fa-solid fa-trash"></i></button>
+                </div>
+                <div class="mtab-setting-row" style="margin-top: 12px;">
+                    <div class="set-info">
+                        <div class="set-label">Image Delivery</div>
+                        <div class="set-desc">WebSocket pulls the finished image off the progress socket the moment it renders — the workflow must use a SaveImageWebsocket node as its save step, and nothing is written on the ComfyUI host. Polling reads the saved file via /history + /view.</div>
+                    </div>
+                    <select id="ig_receive_mode" class="ps-modern-input" style="width: 250px; cursor: pointer;">
+                        <option value="poll" ${s.receiveMode !== 'websocket' ? 'selected' : ''}>HTTP Polling (default)</option>
+                        <option value="websocket" ${s.receiveMode === 'websocket' ? 'selected' : ''}>WebSocket (SaveImageWebsocket)</option>
+                    </select>
                 </div>
             </div>
 
@@ -369,6 +379,7 @@ export function renderImageGen(c) {
     });
 
     $("#ig_inject_mode").on("change", (e) => { s.injectMode = $(e.target).val(); saveProfileToMemory(); });
+    $("#ig_receive_mode").on("change", (e) => { s.receiveMode = $(e.target).val(); saveProfileToMemory(); });
     $("#ig_trigger_mode").on("change", (e) => {
         s.triggerMode = $(e.target).val();
         saveProfileToMemory();
@@ -980,144 +991,126 @@ export async function igGenerateWithComfy(positivePrompt, target = null) {
     // ComfyUI reports real step progress, but only to the client id that queued
     // the job — so the same id must go to the socket and into the /prompt body.
     const comfyClientId = makeComfyClientId();
-    const progress = openComfyProgressSocket(s.comfyUrl, comfyClientId, {
-        onProgress: (value, max) => {
-            const pct = Math.round((value / max) * 100);
-            showKazumaProgress(`Rendering Image... ${value}/${max} (${pct}%)`, pct);
-        },
-    });
+    const igUseWs = s.receiveMode === "websocket";
 
-    try {
-        const res = await fetch(`${s.comfyUrl}/prompt`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: workflow, client_id: comfyClientId }) });
-        if (!res.ok) throw new Error("Failed");
-        const data = await res.json();
+    // WebSocket delivery: only frames sent while a SaveImageWebsocket node is
+    // executing are kept. Preview nodes push frames with the identical wire
+    // format, and there is no "final image" event type to tell them apart — the
+    // executing node is the only honest signal.
+    const igSaveNodeIds = new Set();
+    if (igUseWs) {
+        for (const nodeId in workflow) {
+            if (workflow[nodeId]?.class_type === "SaveImageWebsocket") igSaveNodeIds.add(String(nodeId));
+        }
+    }
+    let igWsNode = null;     // executing node id, only held while it is a save node
+    let igWsFrame = null;    // first raw frame captured during a save node's run
+    let igWsTimer = null;
+    let igOwnPromptId = null;
+    let igWsResolve = null;
+    let igWsReject = null;
+    const igWsDone = new Promise((resolve, reject) => { igWsResolve = resolve; igWsReject = reject; });
 
-        showKazumaProgress("Rendering Image...");
-        const checkInterval = setInterval(async () => {
-            try {
-                const h = await (await fetch(`${s.comfyUrl}/history/${data.prompt_id}`)).json();
-                if (h[data.prompt_id]) {
-                    clearInterval(checkInterval);
-                    let finalImage = null;
-                    for (const nodeId in h[data.prompt_id].outputs) {
-                        const nodeOut = h[data.prompt_id].outputs[nodeId];
-                        if (nodeOut.images && nodeOut.images.length > 0) { finalImage = nodeOut.images[0]; break; }
-                    }
-                    if (finalImage) {
-                        showKazumaProgress("Downloading...");
-                        const imgUrl = `${s.comfyUrl}/view?filename=${finalImage.filename}&subfolder=${finalImage.subfolder}&type=${finalImage.type}`;
+    // Frames are stored raw the moment they arrive and only decoded once the
+    // queue signals completion: the 8-byte header lives in a Blob, which cannot
+    // be read synchronously, so eager decoding would race the completion message
+    // and a fast image could be mistaken for "no image".
+    const igWsSettle = async () => {
+        const decoded = igWsFrame ? await decodeComfyImageFrame(igWsFrame) : null;
+        if (igWsTimer) { clearTimeout(igWsTimer); igWsTimer = null; }
+        if (decoded) igWsResolve(decoded);
+        else igWsReject(new Error("no image arrived over the websocket — the workflow needs a SaveImageWebsocket node as its save step"));
+    };
 
-                        // Download & Compress
-                        const response = await fetch(imgUrl); const blob = await response.blob();
-                        const base64Raw = await new Promise((res) => { const r = new FileReader(); r.onloadend = () => res(r.result); r.readAsDataURL(blob); });
-                        let base64Clean = base64Raw; let format = "png";
-                        if (s.compressImages) {
-                            base64Clean = await new Promise((res) => { const img = new Image(); img.src = base64Raw; img.onload = () => { const cvs = document.createElement('canvas'); cvs.width = img.width; cvs.height = img.height; cvs.getContext('2d').drawImage(img, 0, 0); res(cvs.toDataURL("image/jpeg", 0.9)); }; img.onerror = () => res(base64Raw); });
-                            format = "jpeg";
-                        }
+    // Shared downstream: compress (optional), persist through ST, then inject
+    // the image into the chat — inline, gallery or a fresh message. Both
+    // delivery modes converge here; `base64Raw` is always a data: URL.
+    const deliverImage = async (base64Raw, format) => {
+        let base64Clean = base64Raw;
+        if (s.compressImages) {
+            base64Clean = await new Promise((res) => { const img = new Image(); img.src = base64Raw; img.onload = () => { const cvs = document.createElement('canvas'); cvs.width = img.width; cvs.height = img.height; cvs.getContext('2d').drawImage(img, 0, 0); res(cvs.toDataURL("image/jpeg", 0.9)); }; img.onerror = () => res(base64Raw); });
+            format = "jpeg";
+        }
 
-                        // Insert to Chat
-                        if (!igResolveTarget()) {
-                            igDeclineWrite("insert");
-                            progress.close(); $("#kazuma_progress_overlay").hide();
-                            return;
-                        }
-                        const charName = getContext().characters[getContext().characterId]?.name || "User";
-                        const savedPath = await saveBase64AsFile(base64Clean.split(',')[1], charName, `${charName}_${humanizedDateTime()}`, format);
-                        const mediaAttach = {
-                            url: savedPath,
-                            type: "image",
-                            source: "generated",
-                            title: finalPrompt,
-                            generation_type: "free"
-                        };
+        // Insert to Chat
+        if (!igResolveTarget()) {
+            igDeclineWrite("insert");
+            progress.close(); $("#kazuma_progress_overlay").hide();
+            return;
+        }
+        const charName = getContext().characters[getContext().characterId]?.name || "User";
+        const savedPath = await saveBase64AsFile(base64Clean.split(',')[1], charName, `${charName}_${humanizedDateTime()}`, format);
+        const mediaAttach = {
+            url: savedPath,
+            type: "image",
+            source: "generated",
+            title: finalPrompt,
+            generation_type: "free"
+        };
 
-                        if (target && target.isInlineAuto && target.mode === "inline") {
-                            const safePrompt = finalPrompt.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-                            const wrapperId = target.placeholderId || `kazuma-img-${Date.now()}`;
-                            const imgTag = `<!-- kazuma-inline-start:${wrapperId} --><div id="${wrapperId}" class="kazuma-img-wrapper">
+        if (target && target.isInlineAuto && target.mode === "inline") {
+            const safePrompt = finalPrompt.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+            const wrapperId = target.placeholderId || `kazuma-img-${Date.now()}`;
+            const imgTag = `<!-- kazuma-inline-start:${wrapperId} --><div id="${wrapperId}" class="kazuma-img-wrapper">
 <img src="${savedPath}" title="${safePrompt}" alt="KazumaInline" data-kazumaid="${wrapperId}" style="max-width: 100%; border-radius: 8px; display: block;" />
 </div><!-- kazuma-inline-end:${wrapperId} -->`;
-                            
-                            if (target.placeholderId && target.message.mes.includes(`id="${target.placeholderId}"`)) {
-                                const specificPlaceholderRegex = new RegExp(`<div id="${target.placeholderId}"[^>]*>.*?<\/div>`, "g");
-                                target.message.mes = target.message.mes.replace(specificPlaceholderRegex, imgTag);
-                            } else {
-                                const placeholderRegex = /<div class="kazuma-img-placeholder"[^>]*>\[(Generating|Regenerating) Image\.\.\.\]<\/div>/g;
-                                if (placeholderRegex.test(target.message.mes)) {
-                                    target.message.mes = target.message.mes.replace(placeholderRegex, imgTag);
-                                } else {
-                                    target.message.mes += `\n\n${imgTag}`;
-                                }
-                            }
-                            
-                            // Queue the retry buttons before the redraw, not after it.
-                            // The passes run on their own timers so they still land
-                            // after SillyTavern has drawn, and they survive anything
-                            // below here throwing into the empty catch.
-                            kazumaRetrySweep(target.index);
 
-                            await saveChat();
-                            if (typeof updateMessageBlock === "function") {
-                                updateMessageBlock(target.index, target.message);
-                                // The rebuild dropped the block card with the rest of the body.
-                                meguminScheduleBlocksRefresh();
-                            } else {
-                                await reloadCurrentChat();
-                            }
-                            toastr.success("Image injected inline!");
-                        } else if (target && target.message && !target.isInlineAuto) {
-                            if (!target.message.extra) target.message.extra = {}; if (!target.message.extra.media) target.message.extra.media = [];
-                            target.message.extra.media_display = "gallery"; target.message.extra.media.push(mediaAttach); target.message.extra.media_index = target.message.extra.media.length - 1;
-                            if (typeof appendMediaToMessage === "function") appendMediaToMessage(target.message, target.element);
-                            await saveChat(); toastr.success("Gallery updated!");
-                        } else {
-                            const newMsg = { name: "Image Gen Kazuma", is_user: false, is_system: true, send_date: Date.now(), mes: "", extra: { media: [mediaAttach], media_display: "gallery", media_index: 0 }, force_avatar: "img/five.png" };
-                            getContext().chat.push(newMsg); await saveChat();
-                            if (typeof addOneMessage === "function") addOneMessage(newMsg); else await reloadCurrentChat();
-                            toastr.success("Image inserted!");
-                        }
-                        progress.close(); $("#kazuma_progress_overlay").hide();
-                    } else {
-                        progress.close(); $("#kazuma_progress_overlay").hide();
-                        if (target && target.isInlineAuto && target.mode === "inline" && !igResolveTarget()) {
-                            igDeclineWrite("failure notice");
-                        } else if (target && target.isInlineAuto && target.mode === "inline") {
-                            const wrapperId = target.placeholderId || `kazuma-img-${Date.now()}`;
-                            const safePrompt = finalPrompt.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-                            const failTag = `<!-- kazuma-inline-start:${wrapperId} --><div id="${wrapperId}" class="kazuma-img-wrapper" style="color:#ef4444; font-style: italic; margin: 10px 0;"><span>[Image Generation Failed]</span> <img alt="KazumaInline" data-kazumaid="${wrapperId}" title="${safePrompt}" style="display:none;" /></div><!-- kazuma-inline-end:${wrapperId} -->`;
-                            
-                            if (target.placeholderId && target.message.mes.includes(`id="${target.placeholderId}"`)) {
-                                const specificPlaceholderRegex = new RegExp(`<div id="${target.placeholderId}" class="kazuma-img-placeholder"[^>]*>.*?<\\/div>`, "g");
-                                target.message.mes = target.message.mes.replace(specificPlaceholderRegex, failTag);
-                            } else {
-                                const placeholderRegex = /<div class="kazuma-img-placeholder"[^>]*>\[(Generating|Regenerating) Image\.\.\.\]<\/div>/g;
-                                target.message.mes = target.message.mes.replace(placeholderRegex, failTag);
-                            }
-                            kazumaRetrySweep(target.index);
-                            saveChat();
-                            if (typeof updateMessageBlock === "function") {
-                                updateMessageBlock(target.index, target.message);
-                                // The rebuild dropped the block card with the rest of the body.
-                                meguminScheduleBlocksRefresh();
-                            }
-                        }
-                    }
+            if (target.placeholderId && target.message.mes.includes(`id="${target.placeholderId}"`)) {
+                const specificPlaceholderRegex = new RegExp(`<div id="${target.placeholderId}"[^>]*>.*?<\/div>`, "g");
+                target.message.mes = target.message.mes.replace(specificPlaceholderRegex, imgTag);
+            } else {
+                const placeholderRegex = /<div class="kazuma-img-placeholder"[^>]*>\[(Generating|Regenerating) Image\.\.\.\]<\/div>/g;
+                if (placeholderRegex.test(target.message.mes)) {
+                    target.message.mes = target.message.mes.replace(placeholderRegex, imgTag);
+                } else {
+                    target.message.mes += `\n\n${imgTag}`;
                 }
-            } catch (e) { }
-        }, 1000);
-    } catch (e) {
+            }
+
+            // Queue the retry buttons before the redraw, not after it.
+            // The passes run on their own timers so they still land
+            // after SillyTavern has drawn, and they survive anything
+            // below here throwing into the empty catch.
+            kazumaRetrySweep(target.index);
+
+            await saveChat();
+            if (typeof updateMessageBlock === "function") {
+                updateMessageBlock(target.index, target.message);
+                // The rebuild dropped the block card with the rest of the body.
+                meguminScheduleBlocksRefresh();
+            } else {
+                await reloadCurrentChat();
+            }
+            toastr.success("Image injected inline!");
+        } else if (target && target.message && !target.isInlineAuto) {
+            if (!target.message.extra) target.message.extra = {}; if (!target.message.extra.media) target.message.extra.media = [];
+            target.message.extra.media_display = "gallery"; target.message.extra.media.push(mediaAttach); target.message.extra.media_index = target.message.extra.media.length - 1;
+            if (typeof appendMediaToMessage === "function") appendMediaToMessage(target.message, target.element);
+            await saveChat(); toastr.success("Gallery updated!");
+        } else {
+            const newMsg = { name: "Image Gen Kazuma", is_user: false, is_system: true, send_date: Date.now(), mes: "", extra: { media: [mediaAttach], media_display: "gallery", media_index: 0 }, force_avatar: "img/five.png" };
+            getContext().chat.push(newMsg); await saveChat();
+            if (typeof addOneMessage === "function") addOneMessage(newMsg); else await reloadCurrentChat();
+            toastr.success("Image inserted!");
+        }
         progress.close(); $("#kazuma_progress_overlay").hide();
-        toastr.error("Comfy Error: " + e.message);
+    };
+
+    // Shared failure path: turn the placeholder into a visible failure marker
+    // the retry button can pick up. No fallback between delivery modes — a
+    // websocket job that ends without a frame is an error, not a reason to
+    // start polling.
+    const inlineFail = (message) => {
+        progress.close(); $("#kazuma_progress_overlay").hide();
         if (target && target.isInlineAuto && target.mode === "inline" && !igResolveTarget()) {
-            igDeclineWrite("error notice");
+            igDeclineWrite("failure notice");
         } else if (target && target.isInlineAuto && target.mode === "inline") {
             const wrapperId = target.placeholderId || `kazuma-img-${Date.now()}`;
             const safePrompt = finalPrompt.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-            const failTag = `<!-- kazuma-inline-start:${wrapperId} --><div id="${wrapperId}" class="kazuma-img-wrapper" style="color:#ef4444; font-style: italic; margin: 10px 0;"><span>[Image Generation Failed: ${e.message}]</span> <img alt="KazumaInline" data-kazumaid="${wrapperId}" title="${safePrompt}" style="display:none;" /></div><!-- kazuma-inline-end:${wrapperId} -->`;
-            
+            const failTag = `<!-- kazuma-inline-start:${wrapperId} --><div id="${wrapperId}" class="kazuma-img-wrapper" style="color:#ef4444; font-style: italic; margin: 10px 0;"><span>[Image Generation Failed${message ? `: ${message}` : ""}]</span> <img alt="KazumaInline" data-kazumaid="${wrapperId}" title="${safePrompt}" style="display:none;" /></div><!-- kazuma-inline-end:${wrapperId} -->`;
+
             if (target.placeholderId && target.message.mes.includes(`id="${target.placeholderId}"`)) {
-                const specificPlaceholderRegex = new RegExp(`<div id="${target.placeholderId}" class="kazuma-img-placeholder"[^>]*>.*?<\\/div>`, "g");
+                const specificPlaceholderRegex = new RegExp(`<div id="${target.placeholderId}" class="kazuma-img-placeholder"[^>]*>.*?<\/div>`, "g");
                 target.message.mes = target.message.mes.replace(specificPlaceholderRegex, failTag);
             } else {
                 const placeholderRegex = /<div class="kazuma-img-placeholder"[^>]*>\[(Generating|Regenerating) Image\.\.\.\]<\/div>/g;
@@ -1131,6 +1124,112 @@ export async function igGenerateWithComfy(positivePrompt, target = null) {
                 meguminScheduleBlocksRefresh();
             }
         }
+    };
+
+    const igSocketCallbacks = {
+        onProgress: (value, max) => {
+            const pct = Math.round((value / max) * 100);
+            showKazumaProgress(`Rendering Image... ${value}/${max} (${pct}%)`, pct);
+        },
+        onBinary: igUseWs ? (frame) => {
+            if (igWsNode !== null && !igWsFrame) igWsFrame = frame;
+        } : null,
+        onNode: igUseWs ? (nodeId, promptId) => {
+            if (nodeId === null) {
+                // ComfyUI routes execution messages to the client id that
+                // submitted the job, so a completion here is ours; the prompt_id
+                // check only guards setups where two clients share the server's
+                // single per-execution client slot (multi-GPU queues).
+                if (promptId && igOwnPromptId && promptId !== igOwnPromptId) return;
+                igWsSettle();
+                return;
+            }
+            igWsNode = igSaveNodeIds.has(String(nodeId)) ? String(nodeId) : null;
+        } : null,
+        onError: igUseWs ? (data) => {
+            if (data.prompt_id && igOwnPromptId && data.prompt_id !== igOwnPromptId) return;
+            igWsReject(new Error(data.exception_message || "generation was interrupted or failed on the ComfyUI server"));
+        } : null,
+    };
+    let progress = openComfyProgressSocket(s.comfyUrl, comfyClientId, igSocketCallbacks);
+
+    // WS delivery is dead without the socket, so the job waits for a real
+    // connection before being queued — a refused or blocked socket surfaces as
+    // a fast, visible failure instead of five silent minutes. Tunnels that
+    // strip TLS (Caddy/NPM) serve plain ws:// behind an https:// URL, so one
+    // retry with the downgraded scheme is worth a shot; from an https page the
+    // browser blocks that as mixed content and the retry just fails fast too.
+    const igWsAwaitOpen = async () => {
+        let opened = await Promise.race([
+            progress.opened,
+            new Promise((r) => setTimeout(() => r("timeout"), 15000)),
+        ]);
+        if (opened === true) return true;
+        progress.close();
+        if (/^https:/i.test(String(s.comfyUrl || "").trim())) {
+            console.debug("[Megumin Suite] ComfyUI wss connect failed; retrying plain ws:// (TLS-stripping tunnel?)");
+            progress = openComfyProgressSocket(String(s.comfyUrl).replace(/^https:/i, "http:"), comfyClientId, igSocketCallbacks);
+            opened = await Promise.race([
+                progress.opened,
+                new Promise((r) => setTimeout(() => r("timeout"), 15000)),
+            ]);
+            if (opened === true) return true;
+            progress.close();
+        }
+        return false;
+    };
+
+    try {
+        if (igUseWs && !(await igWsAwaitOpen())) {
+            throw new Error("websocket connection to ComfyUI failed (tried ws and wss) — check the URL/tunnel, or set Image Delivery back to Polling");
+        }
+        const res = await fetch(`${s.comfyUrl}/prompt`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: workflow, client_id: comfyClientId }) });
+        if (!res.ok) throw new Error("Failed");
+        const data = await res.json();
+        igOwnPromptId = data.prompt_id;
+
+        showKazumaProgress("Rendering Image...");
+
+        if (igUseWs) {
+            // WebSocket delivery: the SaveImageWebsocket node pushes the finished
+            // image over the progress socket. No history poll, no /view download,
+            // nothing written on the ComfyUI host. The connection itself was
+            // verified before the job was queued; the timeout below covers a
+            // socket that dies mid-render.
+            igWsTimer = setTimeout(() => igWsReject(new Error("timed out after 300s waiting for the image over the websocket")), 300000);
+            const decoded = await igWsDone;
+            showKazumaProgress("Saving...");
+            await deliverImage(decoded.dataUrl, decoded.format);
+        } else {
+            const checkInterval = setInterval(async () => {
+                try {
+                    const h = await (await fetch(`${s.comfyUrl}/history/${data.prompt_id}`)).json();
+                    if (h[data.prompt_id]) {
+                        clearInterval(checkInterval);
+                        let finalImage = null;
+                        for (const nodeId in h[data.prompt_id].outputs) {
+                            const nodeOut = h[data.prompt_id].outputs[nodeId];
+                            if (nodeOut.images && nodeOut.images.length > 0) { finalImage = nodeOut.images[0]; break; }
+                        }
+                        if (finalImage) {
+                            showKazumaProgress("Downloading...");
+                            const imgUrl = `${s.comfyUrl}/view?filename=${finalImage.filename}&subfolder=${finalImage.subfolder}&type=${finalImage.type}`;
+
+                            // Download
+                            const response = await fetch(imgUrl); const blob = await response.blob();
+                            const base64Raw = await new Promise((res) => { const r = new FileReader(); r.onloadend = () => res(r.result); r.readAsDataURL(blob); });
+                            await deliverImage(base64Raw, "png");
+                        } else {
+                            inlineFail("");
+                        }
+                    }
+                } catch (e) { }
+            }, 1000);
+        }
+    } catch (e) {
+        progress.close(); $("#kazuma_progress_overlay").hide();
+        toastr.error("Comfy Error: " + e.message);
+        inlineFail(e.message);
     }
 }
 
