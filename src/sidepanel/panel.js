@@ -1463,7 +1463,7 @@ function injectStylesheet() {
     try {
         link.href = new URL("./styles.css", import.meta.url).toString();
     } catch (e) {
-        link.href = "scripts/extensions/third-party/Megumin-Suite-Beta/src/sidepanel/styles.css";
+        link.href = "scripts/extensions/third-party/Megumin-Suite/src/sidepanel/styles.css";
     }
     document.head.appendChild(link);
 }
@@ -1504,7 +1504,7 @@ function updateHeaderImage() {
     const ctx = getContext();
     let imgUrl = "";
     if (ctx.groupId !== undefined && ctx.groupId !== null) {
-        imgUrl = `/scripts/extensions/third-party/Megumin-Suite-Beta/img/group.png`;
+        imgUrl = `/scripts/extensions/third-party/Megumin-Suite/img/group.png`;
     } else if (ctx.characterId !== undefined && ctx.characterId !== null && ctx.characters && ctx.characters[ctx.characterId]) {
         imgUrl = `/characters/${ctx.characters[ctx.characterId].avatar}`;
     }
