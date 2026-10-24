@@ -10,22 +10,33 @@
 import { getContext, extension_settings, substituteParams } from "../st.js";
 import { extensionName } from "../core/constants.js";
 import { localProfile } from "../core/state.js";
-import { isV7Engine, isV8Engine, isModernEngine, engineUsesRenderLimits, isCoWriterEngine } from "../core/engines.js";
+import { isV7Engine, isV8Engine, isModernEngine, engineUsesRenderLimits, isCoWriterEngine, engineKeepsNotebook } from "../core/engines.js";
 import {
     activeNpcImages, pushActiveNpcImage, clearActiveNpcImages,
 } from "../core/activeRequests.js";
 import { DEFAULT_PROMPTS } from "../prompts/index.js";
 import { hardcodedLogic } from "../../data/database.js";
 import { applyEnhancedDialogue } from "../../data/modes/v10.js";
-import { buildBlocksEnvelope } from "../features/blocks/registry.js";
+import { blocksEnvelopeParts, buildBlocksEnvelope, blockRulesText, blocksSkeletonSplit } from "../features/blocks/registry.js";
 import { buildConfigBlock } from "../features/storyconfig/config.js";
-import { npcBuildTextFromData, getRelevantNpcImageTags } from "../features/npc/data.js";
-import { npcBuildDossierPrompt, npcBuildUpdatePrompt } from "../features/npc/fields.js";
+import { npcBuildTextFromData } from "../features/npc/data.js";
+import { imageInjectionNpcTags, imageV2InlineInstruction, imageV2InlineSplit, imageViaChomusuke } from "../features/imagegen/index.js";
+import { npcBuildDossierPrompt, npcBuildUpdatePrompt, npcBuildDossierPromptSplit, npcBuildUpdatePromptSplit } from "../features/npc/fields.js";
 import { memGetCachedKeywords } from "../features/memory/keywords.js";
 import { memGetRelevantVaultEntries } from "../features/memory/index.js";
 import { meguminRollD20s } from "../utils/dice.js";
-import { meguminOverridableSlots, meguminSlotIsLive, meguminModuleTrigger } from "../../data/slots.js";
-import { resolveSlot } from "../core/sharedFragments.js";
+import { meguminOverridableSlots, meguminSlotIsLive, meguminModuleTrigger, meguminSlotByTrigger } from "../../data/slots.js";
+import { thinkingSection, formattingSection, bannedSection, reminderSection, thisTurnSection } from "./presetSections.js";
+import { DICE_ROLLS_POINTER, IMAGE_ASK_OLD, IMAGE_ASK_NEW, diceTurnLine, imageTurnLine } from "../prompts/presetFrame.js";
+import {
+    DICE_RULES_PLAYER, DICE_RULES_EVERYONE, wrapImageRules, wrapNpcRules, npcKnownNames,
+    ADDON_RULES_SPLIT, wrapAddon, sameText, wrapRepetition, languageLine, BAN_ADDITIONS,
+} from "../prompts/v11Rules.js";
+import { V11_BAN_LIST, SHORT_BAN_LIST } from "../../data/modes/v11taina.js";
+import { resolveSlot, getSharedFragment } from "../core/sharedFragments.js";
+import { worldPromptBlock, statsPromptParts, notebookPromptBlock, notebookCurrentPhase } from "../state/index.js";
+import { NOTEBOOK_CRAFT } from "../prompts/notebook.js";
+import { meguminCleanChatHistoryText } from "./chatText.js";
 
 export function buildBaseDict(isTokenCount = false) {
     const dict = {};
@@ -38,6 +49,8 @@ export function buildBaseDict(isTokenCount = false) {
     // Everything V8/V9 does, V10 does too. The one exception is the Lean/Full render
     // split below, which asks engineUsesRenderLimits() instead.
     const isModern = isModernEngine(activeEngine);
+    // Plan 018: V11 Тайна's words around the turn. "v11" or undefined.
+    const frame = activeEngine && activeEngine.turnFrame === "v11" ? "v11" : undefined;
 
     if (engineUsesRenderLimits(activeEngine)) {
         const v9l = localProfile.v9Limits || {};
@@ -59,7 +72,10 @@ export function buildBaseDict(isTokenCount = false) {
     const targetLang = (localProfile.userLanguage && localProfile.userLanguage.trim() !== "")
         ? localProfile.userLanguage.toUpperCase()
         : "ENGLISH";
-    dict["[[Language]]"] = `[LANGUAGE RULE]\nALL OUTPUT EXCEPT THINKING MUST BE IN ${targetLang} ONLY.`;
+    // V11 Тайна: after a blank line, as in its versions (the preset has one newline there).
+    dict["[[Language]]"] = frame
+        ? "\n" + languageLine(targetLang)
+        : `[LANGUAGE RULE]\nALL OUTPUT EXCEPT THINKING MUST BE IN ${targetLang} ONLY.`;
 
     if (localProfile.userPronouns === "male") dict["[[pronouns]]"] = `{{user}} is male. Always portray and address him as such.`;
     else if (localProfile.userPronouns === "female") dict["[[pronouns]]"] = `{{user}} is female. Always portray and address her as such.`;
@@ -69,7 +85,9 @@ export function buildBaseDict(isTokenCount = false) {
     dict["[[count]]"] = "";
 
     // Story Config (<config> block). Empty when the config is off or every field is on Default.
-    dict["[[config]]"] = buildConfigBlock(localProfile.storyConfig);
+    dict["[[config]]"] = buildConfigBlock(localProfile.storyConfig, { frame });
+    // V11 Тайна: <repetition> rides in the same message, after the settings.
+    if (frame) dict["[[config]]"] = [dict["[[config]]"], wrapRepetition(activeEngine.repetition)].filter(Boolean).join("\n\n");
 
     // 2. STANDARD STAGE SELECTIONS (Stage 2, 4, 5, 6)
 
@@ -101,6 +119,11 @@ export function buildBaseDict(isTokenCount = false) {
             dict["[[aiprompt]]"] = povInjectionStr + localProfile.aiRule;
         }
     }
+    // [[style]] (plan 018): the style you picked, as written, for a preset that
+    // carries its own text ("You narrate as [[style]]"). Unlike [[aiprompt]] it
+    // is never wiped, and with no style picked it falls back to V11 Default.
+    dict["[[style]]"] = String(localProfile.aiRule || "").trim()
+        || (hardcodedLogic.directStyles.find(s => s.id === "dir_v11") || {}).rule || "";
     localProfile.addons.forEach(aId => {
         const item = hardcodedLogic.addons.find(a => a.id === aId);
         if (item) dict[item.trigger] = item.content;
@@ -136,11 +159,13 @@ export function buildBaseDict(isTokenCount = false) {
         dict["[[DNRATIO]]"] = "";
     }
 
+    let onoBuiltin = "";
     if (localProfile.onomatopoeia && localProfile.onomatopoeia.enabled) {
         let onoRule = `- Narration must utilize onomatopoeia. Use precise, context-specific phonetic representations for physical interactions (e.g., the click of a latch, the thud of a heavy object, the soughing of wind) rather than abstract descriptions of sound.`;
         if (localProfile.onomatopoeia.useStyling) {
             onoRule += `\nAll onomatopoeic words must animated and colored using HTML and CSS. The selected style tag and color must objectively correspond to the physical nature or movement of the sound produced; for example, a repetitive friction sound such as "shush-shush" must utilize a sliding animation tag to represent the physical action.`;
         }
+        onoBuiltin = onoRule;
         dict["[[onomato]]"] = onoRule;
     } else {
         dict["[[onomato]]"] = "";
@@ -201,7 +226,7 @@ export function buildBaseDict(isTokenCount = false) {
         // shared fragment still wins, exactly like every other shared slot.
         dict["[[user]]"] = isCoWriterEngine(activeEngine)
             ? ""
-            : "4. NEVER write for or Control {{user}}";
+            : "5. The response does not speak, think, feel, or act for {{user}}, and it shows everything {{user}} reached for.";
 
         // Slot overrides, driven by MEGUMIN_SLOT_REGISTRY.
         //
@@ -263,7 +288,8 @@ export function buildBaseDict(isTokenCount = false) {
         // V8/V9 Dynamic Injection & Stripping
         if (isModern) {
             // 1. Inject [[aiprompt]] directly into the engine prompts (like p6) where the tag exists
-            const aiPromptVal = dict["[[aiprompt]]"] || "";
+            // V11 Тайна's text always names its narrator: V11 Default when no style is picked.
+            const aiPromptVal = dict["[[aiprompt]]"] || (frame ? dict["[[style]]"] : "") || "";
             for (let i = 1; i <= 6; i++) {
                 if (dict[`[[prompt${i}]]`] && dict[`[[prompt${i}]]`].includes("[[aiprompt]]")) {
                     dict[`[[prompt${i}]]`] = dict[`[[prompt${i}]]`].split("[[aiprompt]]").join(aiPromptVal);
@@ -293,11 +319,22 @@ export function buildBaseDict(isTokenCount = false) {
     // a loop over what the add-ons ask for rather than a branch per add-on: the
     // player-only and everyone variants want three and six, and a third variant
     // would otherwise mean editing the engine to add a number.
+    //
+    // Plan 018: the V11 preset sends the rules up top as [[dice_rules]], the
+    // numbers pointed to in <turn_notes>, and the same numbers on their own line.
+    let diceRollsLine = "";
+    dict["[[dice_rules]]"] = "";
     (localProfile.addons || []).forEach(aId => {
         const item = hardcodedLogic.addons.find(a => a.id === aId);
         if (!item || !item.rolls || !dict[item.trigger]) return;
-        dict[item.trigger] = dict[item.trigger]
-            .replace("[[dice_rolls]]", meguminRollD20s(item.rolls).join(", "));
+        const rolls = meguminRollD20s(item.rolls);
+        // The V11 wording while the rules are the built-in ones; your own
+        // rules are kept, pointed at <turn_notes>.
+        dict["[[dice_rules]]"] = sameText(dict[item.trigger], item.content)
+            ? (aId === "dice_all" ? DICE_RULES_EVERYONE : DICE_RULES_PLAYER)
+            : dict[item.trigger].replace("[[dice_rolls]]", DICE_ROLLS_POINTER);
+        diceRollsLine = diceTurnLine(rolls);
+        dict[item.trigger] = dict[item.trigger].replace("[[dice_rolls]]", rolls.join(", "));
     });
 
     // Wipe main persona for V6, V7, V8, and V9
@@ -314,8 +351,11 @@ export function buildBaseDict(isTokenCount = false) {
     }
 
     // NEW: Inject Thinking Effort to the absolute top of whatever [[COT]] is currently active
+    // Not for a Thinking Cap: it sets its own length, and a word count makes the
+    // models it is for count and redraft.
     let effort = localProfile.thinkEffort || "unspecified";
-    if (effort !== "unspecified" && dict["[[COT]]"]) {
+    const isCap = /^cot-.+-cap-/.test(localProfile.model || "");
+    if (effort !== "unspecified" && dict["[[COT]]"] && !isCap) {
         let words = effort === "custom" ? (localProfile.customThinkEffort || "100") : effort;
         dict["[[COT]]"] = `Your Thinking must not be more than ${words} words.\n\n` + dict["[[COT]]"];
     }
@@ -355,25 +395,31 @@ export function buildBaseDict(isTokenCount = false) {
     if (localProfile.storyPlan && localProfile.storyPlan.enabled) {
         const planText = localProfile.storyPlan.currentPlan;
         const spCustom = localProfile.storyPlan.customPromptsEnabled ? localProfile.storyPlan.customPrompts : null;
-        let finalInjection = "";
-        
+        let unrestricted = "";
+        let plan = "";
+
         if (localProfile.storyPlan.unrestrictedContent) {
-            const unresBlock = (spCustom && spCustom.unrestrictedBlock) || DEFAULT_PROMPTS.storyPlan.unrestrictedBlock;
-            finalInjection += unresBlock + "\n\n";
+            unrestricted = (spCustom && spCustom.unrestrictedBlock) || DEFAULT_PROMPTS.storyPlan.unrestrictedBlock;
         }
 
         if (planText && planText.trim() !== "") {
             const template = (spCustom && spCustom.injectionTemplate) || DEFAULT_PROMPTS.storyPlan.injectionTemplate;
-            finalInjection += template.replace('{{planText}}', planText);
+            plan = template.replace('{{planText}}', planText);
         }
 
-        dict["[[storyplan]]"] = finalInjection.trim();
+        dict["[[storyplan]]"] = [unrestricted, plan].filter(Boolean).join("\n\n").trim();
+        // Plan 018: the V11 preset sends the fixed rule up top and the plan,
+        // which changes, after the chat.
+        dict["[[storyplan_rules]]"] = unrestricted.trim();
+        dict["[[storyplan_now]]"] = plan.trim();
 
         // The refined tracker block you asked for
         const trackerTemplate = (spCustom && spCustom.trackerTemplate) || DEFAULT_PROMPTS.storyPlan.trackerTemplate;
         dict["[[storytracker]]"] = trackerTemplate;
     } else {
         dict["[[storyplan]]"] = "";
+        dict["[[storyplan_rules]]"] = "";
+        dict["[[storyplan_now]]"] = "";
         dict["[[storytracker]]"] = "";
     }
 
@@ -381,12 +427,19 @@ export function buildBaseDict(isTokenCount = false) {
     if (localProfile.banList && localProfile.banList.length > 0) {
         const banStr = localProfile.banList.map(b => `- ${b}`).join("\n");
         const banCustom = localProfile.banListCustomPromptsEnabled ? localProfile.banListCustomPrompts : null;
-        const template = (banCustom && banCustom.injectionTemplate) || DEFAULT_PROMPTS.banList.injectionTemplate;
+        let template = (banCustom && banCustom.injectionTemplate) || DEFAULT_PROMPTS.banList.injectionTemplate;
+        // V11 Тайна: no old-style header inside its <banlist>, unless you wrote your own.
+        if (frame && sameText(template, DEFAULT_PROMPTS.banList.injectionTemplate)) template = BAN_ADDITIONS;
         dict["[[banlist]]"] = template.replace('{{banItems}}', banStr);
     } else {
         dict["[[banlist]]"] = "";
     }
 
+    // Plan 018: the V11 preset's image rules go up top whenever the story model
+    // writes the images ([[img_rules]]), and <turn_notes> asks on the turns one
+    // is due (imageTurn).
+    dict["[[img_rules]]"] = "";
+    let imageTurn = "";
     if (localProfile.imageGen && localProfile.imageGen.enabled) {
         const ig = localProfile.imageGen;
         let shouldInject = false;
@@ -404,7 +457,12 @@ export function buildBaseDict(isTokenCount = false) {
             conditionalText = "CRITICAL INSTRUCTION: ONLY output the <img prompt=\"...\"> tag if the character is explicitly taking a photo, sending a picture, or sharing an image in this exact moment. If not, do NOT output the image tags at all.\n\n";
         }
 
-        if (shouldInject) {
+        // Chomusuke writes the automatic images after the reply (imagegen/auto.js),
+        // so the story model is not asked for an <img> tag at all.
+        if (imageViaChomusuke()) shouldInject = false;
+        const storyModelDraws = ["always", "frequency", "conditional"].includes(mode) && !imageViaChomusuke();
+
+        if (shouldInject || storyModelDraws) {
             const customIg = localProfile.imageGen.customPromptsEnabled ? (localProfile.imageGen.customPrompts || {}) : {};
             const defIg = DEFAULT_PROMPTS.imageGen;
             
@@ -430,20 +488,51 @@ export function buildBaseDict(isTokenCount = false) {
             const template = customIg.injectionTemplate || defIg.injectionTemplate;
             let extraSection = ig.promptExtra ? `Extra Instructions: ${ig.promptExtra}` : "";
             let directLangStr = ig.directLanguage ? "**DIRECT LANGUAGE:** Use exact Booru tags only. \"naked\" not \"wearing nothing.\" \"erection\" not \"visible arousal.\"\n\n**NSFW TAG REFERENCE (use when scene is explicit):**\nBody: naked, nude, topless, exposed nipples, small breasts, medium breasts, large breasts, spread legs, ass, erection, veins, veiny penis\nActions: hetero, sex, vaginal, anal, oral, fellatio, after fellatio, paizuri, straddling, riding, missionary, doggystyle, cowgirl position, moaning, open mouth, tongue out, ahegao, clenching teeth\nFluids: cum, cum on body, cum on breasts, cum on face, cum on hair, cum on tongue, cum in mouth, cum inside, ejaculation, facial, saliva, sweat\nState: flushed face, heavy breathing, trembling, crying with eyes open, half-closed eyes, solo focus" : "";
-            let npcTagsStr = getRelevantNpcImageTags(); // <-- GET THE TAGS
+            let npcTagsStr = imageInjectionNpcTags(); // <-- GET THE TAGS (Classic or V2)
             const imageCountStr = ig.imageCount || 1; 
 
-            dict["[[img1]]"] = template
-                .replace('{{conditionalText}}', conditionalText)
+            const fill = (tmpl, npcTags, cond = conditionalText) => tmpl
+                .replace('{{conditionalText}}', cond)
                 .replace('{{imageCount}}', imageCountStr)
                 .replace('{{templateRules}}', rules)
                 .replace('{{promptExtra}}', extraSection)
                 .replace('{{directLanguage}}', directLangStr)
-                .replace('{{npcImageTags}}', npcTagsStr) // <-- INJECT THEM
+                .replace('{{npcImageTags}}', npcTags)
                 .replace('{{templateExamples}}', examples);
-            
-            // Set the new value for img2 dynamically based on the count!
-            dict["[[img2]]"] = ` and the ${imageCountStr} image tag`;
+            const img1 = fill(template, npcTagsStr);
+
+            // Image Gen V2 has its own, shorter instruction (@Name, cast list).
+            const v2Inline = imageV2InlineInstruction({ conditionalText, imageCount: imageCountStr });
+
+            // The split. The characters' tags (Classic) and the cast (V2)
+            // change with the scene, so they ride in <turn_notes>. A custom
+            // template without the opening sentence can't be split: it is
+            // sent whole in <turn_notes>, on the turns an image is due.
+            // The "only when a photo is taken" warning is left out of the rules:
+            // the line in <turn_notes> says it, on the turns it applies.
+            let turnExtra = "";
+            const v2Split = imageV2InlineSplit({ conditionalText: "" });
+            if (v2Split) {
+                dict["[[img_rules]]"] = wrapImageRules(v2Split.rules);
+                turnExtra = v2Split.turn;
+            } else if (template.includes(IMAGE_ASK_OLD)) {
+                dict["[[img_rules]]"] = wrapImageRules(fill(template.replace(IMAGE_ASK_OLD, IMAGE_ASK_NEW), "", "").replace(/\n{3,}/g, "\n\n"));
+                turnExtra = npcTagsStr;
+            }
+            if (shouldInject) {
+                imageTurn = dict["[[img_rules]]"]
+                    ? [imageTurnLine(imageCountStr, mode === "conditional"), turnExtra].filter(s => String(s || "").trim()).join("\n")
+                    : (v2Inline || img1);
+            }
+
+            if (shouldInject) {
+                dict["[[img1]]"] = v2Inline || img1;
+                // Set the new value for img2 dynamically based on the count!
+                dict["[[img2]]"] = ` and the ${imageCountStr} image tag`;
+            } else {
+                dict["[[img1]]"] = "";
+                dict["[[img2]]"] = "";
+            }
         } else {
             dict["[[img1]]"] = "";
             dict["[[img2]]"] = "";
@@ -461,8 +550,18 @@ export function buildBaseDict(isTokenCount = false) {
     if (dict["[[storytracker]]"]) dict["[[storytracker2]]"] = "[Story tracker here]"; else dict["[[storytracker2]]"] = "";
     if (dict["[[npc_inner_chatter]]"]) dict["[[npc_inner_chatter2]]"] = "[Npc inner chatter here]"; else dict["[[npc_inner_chatter2]]"] = "";
 
+    // --- AUTHOR'S NOTEBOOK (plan 010) ---
+    // The craft of keeping it, for an engine that carries [[notebook]] in its
+    // text (so it is resolved early, below). Empty while the notebook is off,
+    // so the engine never talks about a notebook that isn't there, and
+    // empty for an engine that keeps its own notebook (V11): its own text
+    // carries the craft, and a preset holding [[notebook]] would say it twice.
+    let notebookPhaseNow = "off";
+    try { notebookPhaseNow = notebookCurrentPhase(); } catch (e) { /* no chat */ }
+    dict["[[notebook]]"] = notebookPhaseNow === "off" || engineKeepsNotebook(activeEngine) ? "" : NOTEBOOK_CRAFT;
+
     // Resolve early-evaluated tokens inside all other strings to prevent them from being missed and then cleaned up
-    const earlyTokens = ["[[count]]", "[[Language]]", "[[pronouns]]", "[[DNRATIO]]", "[[img2]]", "[[v9_lean_min]]", "[[v9_lean_max]]", "[[v9_full_min]]", "[[v9_full_max]]"];
+    const earlyTokens = ["[[notebook]]", "[[count]]", "[[Language]]", "[[pronouns]]", "[[DNRATIO]]", "[[img2]]", "[[v9_lean_min]]", "[[v9_lean_max]]", "[[v9_full_min]]", "[[v9_full_max]]"];
     earlyTokens.forEach(et => {
         if (dict[et] !== undefined) {
             const val = dict[et];
@@ -473,21 +572,25 @@ export function buildBaseDict(isTokenCount = false) {
             });
         }
     });
-
-    // --- COMPACT WORLD STATE LOGIC ---
-    if (localProfile.blocks.includes("info") && dict["[[infoblock]]"] && localProfile.worldState && localProfile.worldState.compactEnabled) {
-        const context = typeof getContext === "function" ? getContext() : null;
-        if (context && context.chat) {
-            // Count how many AI messages exist so far
-            const aiMsgCount = context.chat.filter(m => !m.is_user && !m.is_system).length;
-            const freq = localProfile.worldState.fullFreq || 5;
-            
-            // If checking tokens for the UI, OR if the upcoming reply is NOT a multiple of the full frequency
-            if (isTokenCount || (aiMsgCount + 1) % freq !== 0) {
-                dict["[[infoblock]]"] = `Omit deep lore, unresolved threads, and off-screen tracking. Focus ONLY on immediate physical presence:\n<World_State>\n**Time & Loc:** [Time] at [Location]\n**PC:** [Brief visible clothing] | [Current posture/position]\n**NPCs Present:**\n* [Name]: [Brief visible clothing] | [Posture/position]\n</World_State>`;
-            }
-        }
+    // An engine that places [[pronouns]] in its own text (V11 Тайна, inside
+    // <reader>) has it filled there; the preset's copy stays empty.
+    if (activeEngine && [1, 2, 3, 4, 5, 6].some(i => String(activeEngine[`p${i}`] || "").includes("[[pronouns]]"))) {
+        dict["[[pronouns]]"] = "";
     }
+
+    // --- CURRENT WORLD STATE (continuity notes) ---
+    // Injected into [[infoblockcurrent]] above [[blocks]] once the story has a
+    // state on file. The state store owns it; see src/state/index.js.
+    // [[infoblockcorrent]] is an old misspelling some presets still carry.
+    //
+    // Plan 008: the same spot is "Current Info" — World State plus the Bonds the
+    // story needs right now, the player's sheet, and the last Inner Chatter and
+    // Story Tracker — so the model reads the true values here instead of its own
+    // old blocks in the chat. Each part only when its block is on.
+    const worldNotes = localProfile.blocks && localProfile.blocks.includes("info") ? worldPromptBlock() : "";
+    const currentInfo = buildCurrentInfo(worldNotes);
+    dict["[[infoblockcurrent]]"] = currentInfo;
+    dict["[[infoblockcorrent]]"] = currentInfo;
 
     // --- PER-BLOCK HEADERS ---
     // The envelope carries its own header, once, above everything. These lines
@@ -562,6 +665,8 @@ export function buildBaseDict(isTokenCount = false) {
     dict["[[npc_dossier2]]"] = "";
     dict["[[npc list]]"] = "";
     dict["[[npc_updates]]"] = "";
+    // [[npc_rules]] (plan 018): the V11 preset's <npc_dossier_rules>, dossier and updates.
+    const npcRulesParts = [];
 
     if (localProfile.npcBank && localProfile.npcBank.enabled) {
         
@@ -605,6 +710,11 @@ export function buildBaseDict(isTokenCount = false) {
             // asked for here without a prompt edit.
             dict["[[npc_dossier]]"] = npcBuildDossierPrompt(nbPrompts.dossierRules || DEFAULT_PROMPTS.npcBank.dossierRules) + knownNamesText;
             dict["[[npc_dossier2]]"] = "[NPC Dossier block here]";
+
+            // Plan 018: the V11 preset's wording, while the rules are the built-in ones.
+            npcRulesParts.push(sameText(nbPrompts.dossierRules || DEFAULT_PROMPTS.npcBank.dossierRules, DEFAULT_PROMPTS.npcBank.dossierRules)
+                ? [npcBuildDossierPromptSplit(), npcKnownNames(ignoredArr)].filter(Boolean).join("\n\n")
+                : dict["[[npc_dossier]]"].trim());
         }
 
         // --- Update rules ---
@@ -615,6 +725,7 @@ export function buildBaseDict(isTokenCount = false) {
         if (localProfile.npcBank.npcs && localProfile.npcBank.npcs.length > 0) {
             const updatePrompt = npcBuildUpdatePrompt();
             dict["[[npc_updates]]"] = updatePrompt;
+            npcRulesParts.push(npcBuildUpdatePromptSplit());
 
             // AND appended to [[npc_dossier]], which is the only one of the two
             // that existing presets actually contain.
@@ -718,6 +829,36 @@ export function buildBaseDict(isTokenCount = false) {
         }
     }
 
+    // --- PRESET SECTIONS (plan 017) ---
+    // The V11 preset is only slots. These carry their own headers, so a section
+    // that is off takes its header with it. Built here, after [[THINK]], the
+    // ban list and the override pass, from the finished parts: a Dev Mode edit
+    // of any part still reaches the section.
+    const slotText = trigger => {
+        const slot = meguminSlotByTrigger(trigger);
+        if (!slot || !meguminSlotIsLive(slot, localProfile)) return "";
+        return resolveSlot(slot, activeEngine).value || "";
+    };
+    // The built-in ban list (plan 018): the short list when you picked it; on
+    // V11 Тайна the full list in its own wording (your edit of it, if any).
+    let builtInBan = slotText("[[banlist_builtin]]");
+    if (builtInBan) {
+        if (localProfile.banListShort) builtInBan = SHORT_BAN_LIST;
+        else if (frame) builtInBan = getSharedFragment("banlistBuiltInV11") || V11_BAN_LIST;
+    }
+    const banned = bannedSection({ builtIn: builtInBan, additions: dict["[[banlist]]"], frame });
+    dict["[[thinking]]"] = thinkingSection(dict["[[THINK]]"], { frame });
+    dict["[[formatting]]"] = formattingSection({
+        dnratio: dict["[[DNRATIO]]"], color: dict["[[COLOR]]"], rules: slotText("[[formatting_rules]]"),
+        direct: dict["[[Direct]]"], dn: dict["[[DN]]"], frame,
+    });
+    dict["[[banned]]"] = banned;
+    dict["[[reminder]]"] = reminderSection({
+        checks: slotText("[[final_checks]]"), banned: !!banned,
+        presetChecks: slotText("[[reminder_checks]]"), userLine: dict["[[user]]"], frame,
+    });
+    dict["[[content]]"] = slotText("[[content]]");
+
     // --- MASTER BLOCK ENVELOPE ---
     // Built from the same per-block values the legacy path uses, so engine
     // overrides, custom prompts and compact World State all still apply. Which of
@@ -731,7 +872,73 @@ export function buildBaseDict(isTokenCount = false) {
     // <New_NPC> slot could never appear in the envelope no matter what the bank
     // was doing. Anything that populates a tag a block reads must run before
     // this line.
-    dict["[[blocks]]"] = buildBlocksEnvelope(dict);
+    const envelope = blocksEnvelopeParts(dict);
+    dict["[[blocks]]"] = buildBlocksEnvelope(envelope);
+
+    // --- PLAN 018: the V11 preset's two halves ---
+    // [[block_rules]] goes up top with [[npc_dossier]], [[dice_rules]] and
+    // [[img_rules]]; [[this_turn]] goes last, with only what is new this turn.
+    dict["[[block_rules]]"] = blockRulesText(envelope);
+    dict["[[npc_rules]]"] = wrapNpcRules(npcRulesParts);
+
+    // The add-ons, each in its own tag. A built-in text gets its V11 wording;
+    // one you edited is kept as you wrote it. Organic NPCs & Events is V6's
+    // and stays out.
+    const addonBuiltin = id => (hardcodedLogic.addons.find(a => a.id === id) || {}).content;
+    dict["[[addon_rules]]"] = [
+        ["[[onomato]]", "sound", onoBuiltin, (localProfile.onomatopoeia || {}).useStyling ? ADDON_RULES_SPLIT.onomatoStyled : ADDON_RULES_SPLIT.onomato],
+        ["[[death]]", "death", addonBuiltin("death"), ADDON_RULES_SPLIT.death],
+        ["[[combat]]", "combat", addonBuiltin("combat"), ADDON_RULES_SPLIT.combat],
+        ["[[html]]", "render", addonBuiltin("html"), null],
+    ].map(([trigger, tag, builtin, v11]) => {
+        const now = dict[trigger];
+        if (!now || !String(now).trim()) return "";
+        return v11 && sameText(now, builtin) ? v11 : wrapAddon(tag, now);
+    }).filter(Boolean).join("\n\n");
+    dict["[[this_turn]]"] = thisTurnSection({
+        dice: diceRollsLine,
+        image: imageTurn,
+        blocks: blocksSkeletonSplit(envelope),
+    });
 
     return dict;
+}
+
+// The last few messages, blocks removed: whose bonds the story needs is read from these.
+function recentStoryText(count = 3) {
+    const chat = (getContext() && getContext().chat) || [];
+    const out = [];
+    for (let i = chat.length - 1; i >= 0 && out.length < count; i--) {
+        const m = chat[i];
+        if (!m || m.is_system) continue;
+        out.push(meguminCleanChatHistoryText(String(m.mes || "")));
+    }
+    return out.join("\n");
+}
+
+// [[infoblockcurrent]]: one <Current_Info> section, or "" when nothing is on file.
+function buildCurrentInfo(worldNotes) {
+    let parts = { bonds: "", sheet: "", chatter: "", tracker: "" };
+    try { parts = statsPromptParts({ recentText: recentStoryText() }); } catch (e) {
+        console.warn("[Megumin Suite] Current Info: could not read the kept blocks.", e);
+    }
+    let notebook = "";
+    try { notebook = notebookPromptBlock(); } catch (e) {
+        console.warn("[Megumin Suite] Current Info: could not read the notebook.", e);
+    }
+    const sections = [];
+    if (worldNotes) sections.push(worldNotes);
+    if (notebook) sections.push(notebook);
+    if (parts.bonds) sections.push(`<Bonds_Now>\n${parts.bonds}\n</Bonds_Now>`);
+    if (parts.sheet) sections.push(`<Character_Sheet_Now>\n${parts.sheet}\n</Character_Sheet_Now>`);
+    if (parts.chatter) sections.push(`<Last_Inner_Chatter>\n${parts.chatter}\n</Last_Inner_Chatter>`);
+    if (parts.tracker) sections.push(`<Last_Story_Tracker>\n${parts.tracker}\n</Last_Story_Tracker>`);
+    if (!sections.length) return "";
+    return [
+        "<Current_Info>",
+        "<!-- Where the story stands right now, before your reply: the world, how the characters feel about {{user}}, {{user}}'s sheet, and the last private thoughts and story notes. Keep your reply consistent with it and carry these values forward. Never copy this section into your reply. -->",
+        "",
+        sections.join("\n\n"),
+        "</Current_Info>"
+    ].join("\n");
 }

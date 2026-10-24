@@ -8,11 +8,88 @@ import { saveProfileToMemory, saveProfileDebounced } from "../../core/profile.js
 import { DEFAULT_PROMPTS } from "../../prompts/index.js";
 import { renderPromptEditor } from "../../ui/promptEditor.js";
 import { getCleanedChatHistory } from "../../engine/chatText.js";
-import { analyzeSlopDirectly, analyzeSlopWithPreset } from "../../engine/tasks.js";
+import { analyzeSlopDirectly, analyzeSlopWithPreset, runWithChomusuke } from "../../engine/tasks.js";
+import { Popup, POPUP_TYPE, extension_settings } from "../../st.js";
+import { switchRow, segmented } from "../../ui/controls.js";
+import { getSharedFragment, setSharedFragment } from "../../core/sharedFragments.js";
+import { BUILTIN_BAN_LIST } from "../../prompts/presetFrame.js";
+import { V11_BAN_LIST } from "../../../data/modes/v11taina.js";
+import { hardcodedLogic } from "../../../data/database.js";
+import { extensionName } from "../../core/constants.js";
+
+// V11 Тайна sends the full list in its own wording, kept and edited apart from
+// the one older presets send (plan 018).
+function fullList() {
+    const all = [...hardcodedLogic.modes, ...((extension_settings[extensionName] || {}).customModes || [])];
+    const engine = all.find(m => m.id === localProfile.mode);
+    return engine && engine.turnFrame === "v11"
+        ? { key: "banlistBuiltInV11", original: V11_BAN_LIST, name: engine.label }
+        : { key: "banlistBuiltIn", original: BUILTIN_BAN_LIST, name: "" };
+}
+
+// The built-in list in a popup. Saving the original text back stores nothing,
+// so a later update to the original still reaches this install.
+async function editBuiltInList() {
+    const list = fullList();
+    const $root = $(`
+        <div style="text-align:left;">
+            <h3 style="margin-top:0;">Built-in list${list.name ? ` (${list.name})` : ""}</h3>
+            <div style="opacity:0.75; font-size:0.85rem; margin-bottom:8px;">The same list in every chat. Switch it off in the Banned Phrases tab.</div>
+            <textarea class="ps-modern-input" rows="18" style="width:100%; font-family:monospace; font-size:0.8rem;"></textarea>
+            <button type="button" class="ps-modern-btn secondary bl-reset" style="margin-top:8px; padding: 4px 10px; font-size: 0.75rem;"><i class="fa-solid fa-rotate-left"></i> Put back the original list</button>
+        </div>
+    `);
+    const $text = $root.find("textarea");
+    $text.val(getSharedFragment(list.key) || list.original);
+    $root.find(".bl-reset").on("click", () => $text.val(list.original));
+
+    const saved = await new Popup($root, POPUP_TYPE.CONFIRM, "", { okButton: "Save", cancelButton: "Cancel", wide: true, large: true, allowVerticalScrolling: true }).show();
+    if (!saved) return;
+    const value = String($text.val() || "");
+    const original = value.replace(/\r\n/g, "\n").trim() === list.original.trim();
+    setSharedFragment(list.key, original ? "" : value);
+    if (!original && value.trim() === "") toastr.info("The built-in list is empty now, so the original list will be used. To send none, switch it off instead.");
+    else toastr.success(original ? "Built-in list set back to the original." : "Built-in list saved.");
+}
 
 export function renderBanList(c) {
     c.empty();
     if (!localProfile.banList) localProfile.banList = [];
+
+    // ── BUILT-IN LIST (plan 017) ──
+    // Used to be fixed text in the preset. It can be switched off per profile
+    // (follows this tab's Global switch); the edited text is one for the whole
+    // install, the same text Dev Mode shows as "Ban List (built-in)".
+    const $builtIn = $(`
+        <div class="mtab-panel" style="margin-bottom:16px;">
+            <div class="mtab-panel-title red"><i class="fa-solid fa-book"></i> Built-in list</div>
+        </div>
+    `);
+    $builtIn.append(switchRow({
+        label: "Use the built-in list",
+        desc: "Wording and habits the story never uses: cliché phrases, naming feelings, echoing your words. Your own phrases below are added to it.",
+        on: localProfile.banListBuiltIn !== false,
+        onChange: on => {
+            localProfile.banListBuiltIn = on;
+            saveProfileToMemory();
+        },
+    }));
+    // Plan 018: the short list, for models that redraft over a long one.
+    const $which = $(`<div style="margin-top:10px;"><div class="set-desc" style="margin-bottom:6px;">Which list: the short one keeps five habits and drops the word list. GLM, DeepSeek and models like them redraft for ages over a long list.</div></div>`);
+    const $editBuiltIn = $(`<button class="ps-modern-btn secondary" style="margin-top:10px; padding: 6px 12px; font-size: 0.78rem;"><i class="fa-solid fa-pen"></i> Edit the full list</button>`);
+    $which.append(segmented([
+        { id: "full", label: "Full list" },
+        { id: "short", label: "Short list" }
+    ], localProfile.banListShort ? "short" : "full", id => {
+        localProfile.banListShort = id === "short";
+        saveProfileToMemory();
+        $editBuiltIn.toggle(!localProfile.banListShort);
+    }));
+    $builtIn.append($which);
+    $editBuiltIn.toggle(!localProfile.banListShort);
+    $editBuiltIn.on("click", editBuiltInList);
+    $builtIn.append($editBuiltIn);
+    c.append($builtIn);
 
     // ── AI SLOP DETECTOR ──
     c.append(`
@@ -23,14 +100,10 @@ export function renderBanList(c) {
             </div>
             <div class="mtab-setting-row">
                 <div class="set-info">
-                    <div class="set-label">Generator Backend</div>
-                    <div class="set-desc">Choose how to generate the analysis.</div>
+                    <div class="set-label"><i class="fa-solid fa-cat" style="color: #f43f5e; margin-right: 6px;"></i> Background Worker</div>
+                    <div class="set-desc">Managed by the <b>Chomusuke</b> tab. Configure Chomusuke to offload slop analysis to a dedicated worker LLM.</div>
                 </div>
-                <select id="ban_list_backend" class="ps-modern-input" style="width: 200px; cursor: pointer;">
-                <option value="direct" ${localProfile.banListBackend === 'direct' ? 'selected' : ''}>Direct API Call (Fast)</option>
-                <option value="preset" ${localProfile.banListBackend === 'preset' ? 'selected' : ''}>Megumin Engine Preset</option>
-            </select>
-        </div>
+            </div>
 
         <div class="mtab-panel" style="margin-bottom:16px;">
             <div class="mtab-panel-title red"><i class="fa-solid fa-plus-circle"></i> Add Phrase</div>
@@ -159,20 +232,11 @@ export function renderBanList(c) {
         reader.readAsText(file);
         $(this).val('');
     });
-    $("#ban_list_backend").on("change", function () {
-        localProfile.banListBackend = $(this).val();
-        saveProfileToMemory();
-    });
     $("#ps_btn_scan_slop").on("click", async function () {
         const chatText = getCleanedChatHistory();
         if (chatText.length < 50) return toastr.warning("Not enough chat history to analyze!");
         $(this).prop("disabled", true).html(`<i class="fa-solid fa-spinner fa-spin"></i> Analyzing...`);
-        let rawResponse;
-        if (!localProfile.banListBackend || localProfile.banListBackend === "direct") {
-            rawResponse = await analyzeSlopDirectly(chatText);
-        } else {
-            rawResponse = await analyzeSlopWithPreset(chatText);
-        }
+        let rawResponse = await runWithChomusuke("banList", () => analyzeSlopDirectly(chatText));
         if (rawResponse) {
             const newPhrases = rawResponse.split(/[,*\n-]/).map(t => t.trim().replace(/['"\[\]\.]/g, '')).filter(t => t.length > 3);
             let addedCount = 0;

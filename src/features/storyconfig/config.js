@@ -9,6 +9,7 @@
 
 import { extension_settings } from "../../st.js";
 import { extensionName } from "../../core/constants.js";
+import { storySettingsBlock } from "../../prompts/v11Rules.js";
 
 // The preamble is always emitted whenever the block is emitted at all.
 export const CONFIG_PREAMBLE = `These are standing settings for this story. Where a setting here contradicts anything above, this block wins. These apply to the whole story, not a single scene.`;
@@ -57,21 +58,19 @@ export const storyConfigFields = [
     },
     {
         key: "pov", tag: "pov", label: "Point of View", icon: "fa-eye", color: "#3b82f6", type: "select",
-        hint: "Narrative person and where the camera sits. Never loosens the {{user}} boundary.",
-        customPlaceholder: "e.g. third limited, sitting behind Maya's eyes",
+        hint: "How the story names your character: by name, as \"you\", or with the main character telling it as \"I\".",
+        customPlaceholder: "e.g. third person, and {{user}} is only ever called \"the stranger\"",
+        // Plan 018: the person only. Whose head the narration follows is the
+        // writing style's (V11 Inside), so the old head options all read as
+        // third person now, and so do the sentences they used to send.
         options: [
-            { label: "second person on {{user}}", legacy: ["second person on {{user}}"],
-              value: `second person — the narration addresses {{user}} as "you". Narrate what reaches {{user}}; NEVER what {{user}} decides, says, or feels about it` },
-            { label: "third limited", legacy: ["third limited"],
-              value: "third person limited — one focal consciousness per scene. The reader learns only what the focal character perceives, and the gaps in their knowledge stand" },
-            { label: "third limited following one character", legacy: ["third limited following one NPC"],
-              value: "third person limited, locked to a single character for the whole scene — their perception is the boundary of the narration. Changing heads mid-scene is PROHIBITED; change only at a scene break" },
-            { label: "third omniscient", legacy: ["third omniscient"],
-              value: "third person omniscient — access to every interior. The narration MAY move between minds, but each shift MUST be legible rather than slid into" },
-            { label: "first person", legacy: ["first person"],
-              value: `first person — the focal character's "I", never {{user}}'s. Their bias colors every observation; they MAY be wrong about what they report` },
-            { label: "roving", legacy: ["roving"],
-              value: "third person limited, roving — the focal character MAY change between scenes, NEVER within one. Each scene commits to a vantage and holds it to the end" }
+            { label: "third person", legacy: ["third limited", "third limited following one character", "third limited following one NPC", "third omniscient", "roving",
+                "third person limited — one focal consciousness per scene. The reader learns only what the focal character perceives, and the gaps in their knowledge stand", "third person limited, locked to a single character for the whole scene — their perception is the boundary of the narration. Changing heads mid-scene is PROHIBITED; change only at a scene break", "third person omniscient — access to every interior. The narration MAY move between minds, but each shift MUST be legible rather than slid into", "third person limited, roving — the focal character MAY change between scenes, NEVER within one. Each scene commits to a vantage and holds it to the end"],
+              value: "third person. Your narration calls {{user}} by name or he/she" },
+            { label: "second person", legacy: ["second person on {{user}}", `second person — the narration addresses {{user}} as "you". Narrate what reaches {{user}}; NEVER what {{user}} decides, says, or feels about it`],
+              value: `second person. Your narration calls {{user}} "you"` },
+            { label: "first person", legacy: [`first person — the focal character's "I", never {{user}}'s. Their bias colors every observation; they MAY be wrong about what they report`],
+              value: `first person. {{char}} tells the story as "I", and your narration calls {{user}} by name or he/she` }
         ]
     },
     {
@@ -192,6 +191,8 @@ export const storyConfigFields = [
               value: "flexible — as short as 50 words for a quick one-on-one exchange, up to 700 when a scene earns the space. Match the length to what the moment actually needs; never pad to reach a number" },
             { label: "250–350 words", legacy: ["250–350 words"],
               value: "250–350 words per response. When trimming to fit, cut description before dialogue" },
+            { label: "250–350 words, longer for fights and sex", legacy: ["250–350 words, longer for fights and sex"],
+              value: "usually 250–350 words, longer only while a fight or sex scene is under way" },
             { label: "450–550 words", legacy: ["450–550 words"],
               value: "450–550 words per response. When trimming to fit, cut description before dialogue" },
             { label: "minimum 900 words", legacy: ["minimum 900 words"],
@@ -213,7 +214,7 @@ export const storyConfigFields = [
 // Stored as the option LABEL, not the sentence the model reads: upgradeConfigValue
 // resolves it on load, so the wording still lives in exactly one place (the option).
 export const STORY_CONFIG_DEFAULTS = {
-    pov: "third limited following one character",
+    pov: "third person",
     pace: "steady",
     length: "flexible"
 };
@@ -244,11 +245,11 @@ export function isStandingConfigField(key) {
 export const builtInConfigPresets = [
     {
         id: "cfg_grimdark", name: "Grimdark Survival", builtin: true,
-        values: { genre: "survival, dark fantasy", tone: "bleak", pov: "third limited", pace: "steady", length: "450–550 words", difficulty: "harsh (competence required, failure common, mistakes carry a real cost)", friction: "high (complications every scene, pressure never fully releasing)", npcDisposition: "wary", explicitness: "graphic", narratorPresence: "", focus: "", culture: "high fantasy European", era: "", npcSpeechStyle: "", notes: "" }
+        values: { genre: "survival, dark fantasy", tone: "bleak", pov: "third person", pace: "steady", length: "450–550 words", difficulty: "harsh (competence required, failure common, mistakes carry a real cost)", friction: "high (complications every scene, pressure never fully releasing)", npcDisposition: "wary", explicitness: "graphic", narratorPresence: "", focus: "", culture: "high fantasy European", era: "", npcSpeechStyle: "", notes: "" }
     },
     {
         id: "cfg_cozy", name: "Cozy Slice of Life", builtin: true,
-        values: { genre: "slice of life", tone: "warm", pov: "second person on {{user}}", pace: "slow burn", length: "250–350 words", difficulty: "forgiving (most attempts land)", friction: "low (only ever as earned consequence)", npcDisposition: "warm", explicitness: "fade to black", narratorPresence: "invisible (report only, no coloring)", focus: "", era: "present day", npcSpeechStyle: "modern casual", notes: "" }
+        values: { genre: "slice of life", tone: "warm", pov: "second person", pace: "slow burn", length: "250–350 words", difficulty: "forgiving (most attempts land)", friction: "low (only ever as earned consequence)", npcDisposition: "warm", explicitness: "fade to black", narratorPresence: "invisible (report only, no coloring)", focus: "", era: "present day", npcSpeechStyle: "modern casual", notes: "" }
     },
     {
         id: "cfg_noir", name: "Noir Mystery", builtin: true,
@@ -256,11 +257,11 @@ export const builtInConfigPresets = [
     },
     {
         id: "cfg_horror", name: "Slow Dread Horror", builtin: true,
-        values: { genre: "horror", tone: "tense", pov: "third limited", pace: "slow burn", length: "minimum 900 words", difficulty: "harsh (competence required, failure common, mistakes carry a real cost)", friction: "high (complications every scene, pressure never fully releasing)", npcDisposition: "cold", explicitness: "graphic", narratorPresence: "", focus: "", era: "", npcSpeechStyle: "", notes: "Never resolve a threat in the same scene it appears." }
+        values: { genre: "horror", tone: "tense", pov: "third person", pace: "slow burn", length: "minimum 900 words", difficulty: "harsh (competence required, failure common, mistakes carry a real cost)", friction: "high (complications every scene, pressure never fully releasing)", npcDisposition: "cold", explicitness: "graphic", narratorPresence: "", focus: "", era: "", npcSpeechStyle: "", notes: "Never resolve a threat in the same scene it appears." }
     },
     {
         id: "cfg_romance", name: "Slow Burn Romance", builtin: true,
-        values: { genre: "romance", tone: "warm", pov: "second person on {{user}}", pace: "slow burn", length: "450–550 words", difficulty: "", friction: "", npcDisposition: "", explicitness: "plain", narratorPresence: "", focus: "", era: "", npcSpeechStyle: "", notes: "" }
+        values: { genre: "romance", tone: "warm", pov: "second person", pace: "slow burn", length: "450–550 words", difficulty: "", friction: "", npcDisposition: "", explicitness: "plain", narratorPresence: "", focus: "", era: "", npcSpeechStyle: "", notes: "" }
     }
 ];
 
@@ -280,7 +281,7 @@ export function getAllConfigPresets() {
 // A value matching nothing is returned untouched. That is either already current or
 // something the reader typed into the Custom... box, and overwriting the second would
 // throw away their words to fix a problem they do not have.
-function upgradeConfigValue(field, raw) {
+export function upgradeConfigValue(field, raw) {
     const v = String(raw == null ? "" : raw).trim();
     if (!v || !field.options) return v;
     const opts = field.options.map(o => typeof o === "string" ? { label: o, value: o } : o);
@@ -309,9 +310,10 @@ export function countActiveConfigFields(cfg) {
 }
 
 // Compiles the profile's storyConfig into the <config> block that replaces [[config]].
+// frame "v11" (V11 Тайна, plan 018): <story_settings> with its own preamble.
 // The block is always on; it returns "" only when every field is empty, so the tag is
 // stripped cleanly on a profile that has somehow been blanked.
-export function buildConfigBlock(cfg) {
+export function buildConfigBlock(cfg, { frame } = {}) {
     if (!cfg) return "";
 
     normalizeStoryConfig(cfg);
@@ -326,5 +328,6 @@ export function buildConfigBlock(cfg) {
     });
 
     if (lines.length === 0) return "";
+    if (frame === "v11") return storySettingsBlock(lines);
     return `<config>\n${CONFIG_PREAMBLE}\n\n${lines.join("\n")}\n</config>`;
 }

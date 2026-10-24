@@ -19,6 +19,8 @@ import {
     normalizeBlockBody, blockTagFromName, validateCustomBlock, meguminSyncLegacyBlockIds,
 } from "./registry.js";
 import { meguminScheduleBlocksRefresh } from "./chat.js";
+import { stateStore, worldUpdateMode } from "../../state/index.js";
+import { openWorldEditor } from "../worldstate/editor.js";
 import { meguminSlotByTrigger } from "../../../data/slots.js";
 import { hasSharedFragment } from "../../core/sharedFragments.js";
 
@@ -59,6 +61,17 @@ export function renderBlocksTab(c) {
     const layout = $(`<div class="blk-layout"></div>`);
     const left = $(`<div class="blk-col"></div>`);
     const right = $(`<div class="blk-col"></div>`);
+
+    // ── HIDE BLOCKS FROM THE AI (plan 008) ──
+    const hide = $(`
+        <label class="blk-ws-chip blk-hide-ai" title="The story model reads the current values (Bonds, Sheet, World State, the last Inner Chatter and Story Tracker) once, in Current Info, instead of every old block in the chat. Turn off to let it read the old blocks again.">
+            <input type="checkbox" id="blk_hide_ai" ${localProfile.hideBlocksFromAI !== false ? "checked" : ""}/> Hide old blocks from the AI (it reads Current Info instead) <span class="ecard-badge rec"><i class="fa-solid fa-star"></i> Recommended</span>
+        </label>
+    `);
+    hide.find("#blk_hide_ai").on("change", function () {
+        localProfile.hideBlocksFromAI = this.checked; saveProfileToMemory();
+    });
+    left.append(hide);
 
     // ── IN THE BLOCK ──
     left.append(`<div class="wstyle-section-head gold"><i class="fa-solid fa-list-ol"></i> Inside the master block</div>`);
@@ -113,44 +126,72 @@ export function renderBlocksTab(c) {
         row.find(".blk-edit").on("click", () => renderCustomBlockEditor(c, b.id));
         list.append(row);
 
-        // World State is the one block with a setting of its own: on most turns
-        // it can send a shortened template and spend the full one only every few
-        // replies. It rides under its own row rather than in a settings tab
-        // somewhere else, because it is meaningless apart from this block.
+        // World State settings ride under its own row: they mean nothing apart
+        // from this block. The state itself lives in the chat file; these are
+        // only how it is kept and how much of it the model reads.
         if (b.id === "world") {
-            if (!localProfile.worldState) localProfile.worldState = { compactEnabled: false, fullFreq: 5 };
             const ws = localProfile.worldState;
+            const hasChat = Boolean(getContext()?.chatId);
+            const pending = stateStore.isPendingFullRewrite("world");
             const sub = $(`
-                <div class="blk-sub">
-                    <div class="blk-sub-row">
-                        <div>
-                            <div class="blk-sub-label">Compact mode</div>
-                            <div class="blk-sub-desc">Sends a shorter World State on most turns to save tokens.</div>
-                        </div>
-                        <div class="ps-toggle-card ${ws.compactEnabled ? 'active' : ''}" id="blk_compact_toggle" style="padding:2px; min-width:40px; background:transparent; border-color:${ws.compactEnabled ? '#10b981' : 'var(--border-color)'}; cursor:pointer; border-radius:8px;">
-                            <div class="ps-switch" style="transform: scale(0.7); ${ws.compactEnabled ? 'background:#10b981;' : ''}"></div>
-                        </div>
+                <div class="blk-sub blk-ws">
+                    <div class="blk-ws-grid">
+                        <label class="blk-ws-field">
+                            <span class="blk-sub-label">Updates</span>
+                            <select id="blk_ws_mode" class="ps-modern-input">
+                                <option value="inline" ${ws.updateMode !== "manual" ? "selected" : ""}>Automatic</option>
+                                <option value="manual" ${ws.updateMode === "manual" ? "selected" : ""}>Manual</option>
+                            </select>
+                            <span class="blk-sub-desc">${worldUpdateMode() === "sidemodel"
+                                ? "Automatic: Chomusuke reads each reply (set in the Chomusuke tab)."
+                                : "Automatic: each reply records what it changed. Chomusuke can take this over in its tab."} Manual: only read.</span>
+                        </label>
+                        <label class="blk-ws-field">
+                            <span class="blk-sub-label">Detail sent</span>
+                            <select id="blk_ws_detail" class="ps-modern-input">
+                                <option value="full" ${ws.injectionDetail === "full" ? "selected" : ""}>Full</option>
+                                <option value="scene" ${ws.injectionDetail === "scene" ? "selected" : ""}>Scene only</option>
+                            </select>
+                            <span class="blk-sub-desc">Scene only skips mood, agenda, secrets and threads to save tokens.</span>
+                        </label>
                     </div>
-                    <div class="blk-sub-row" id="blk_freq_row" style="display:${ws.compactEnabled ? 'flex' : 'none'};">
-                        <div>
-                            <div class="blk-sub-label">Full state every</div>
-                            <div class="blk-sub-desc">How often the complete template comes back.</div>
-                        </div>
-                        <div style="display:flex; align-items:center; gap:6px;">
-                            <input type="number" id="blk_full_freq" class="ps-modern-input" min="1" value="${ws.fullFreq || 5}" style="width:60px; padding:4px; text-align:center; font-size:0.72rem;" />
-                            <span style="font-size:0.68rem; color:var(--text-muted);">replies</span>
-                        </div>
+                    <div class="blk-ws-chips">
+                        <label class="blk-ws-chip" title="Show what each reply changed at the top of its World State card">
+                            <input type="checkbox" id="blk_ws_changes" ${ws.showChanges !== false ? "checked" : ""}/> Show what changed on cards
+                        </label>
+                        <label class="blk-ws-chip" title="When an absent character is mentioned again, remind the model how they last were">
+                            <input type="checkbox" id="blk_ws_returning" ${ws.showReturning !== false ? "checked" : ""}/> Remind the model of returning characters
+                        </label>
+                    </div>
+                    <div class="blk-ws-actions">
+                        <button id="blk_ws_editor" class="menu_button" ${hasChat ? "" : "disabled"} title="Edit this chat's World State and its history"><i class="fa-solid fa-pen"></i> Editor</button>
+                        <button id="blk_ws_rewrite" class="menu_button ${pending ? "is-on" : ""}" ${hasChat ? "" : "disabled"} title="Ask the next reply to write the whole state again"><i class="fa-solid ${pending ? "fa-check" : "fa-arrows-rotate"}"></i> ${pending ? "Rewrite queued" : "Rewrite next"}</button>
+                        <button id="blk_ws_reset" class="menu_button" ${hasChat ? "" : "disabled"} title="Clear this chat's World State"><i class="fa-solid fa-eraser"></i> Reset</button>
                     </div>
                 </div>
             `);
-            sub.find("#blk_compact_toggle").on("click", () => {
-                ws.compactEnabled = !ws.compactEnabled;
-                saveProfileToMemory(); renderBlocksTab(c);
+            sub.find("#blk_ws_mode").on("change", function () {
+                ws.updateMode = $(this).val(); saveProfileToMemory(); renderBlocksTab(c); meguminScheduleBlocksRefresh();
             });
-            sub.find("#blk_full_freq").on("input", function () {
-                let v = parseInt($(this).val(), 10);
-                if (isNaN(v) || v < 1) v = 5;
-                ws.fullFreq = v; saveProfileDebounced();
+            sub.find("#blk_ws_detail").on("change", function () {
+                ws.injectionDetail = $(this).val(); saveProfileToMemory();
+            });
+            sub.find("#blk_ws_changes").on("change", function () {
+                ws.showChanges = this.checked; saveProfileToMemory(); meguminScheduleBlocksRefresh();
+            });
+            sub.find("#blk_ws_returning").on("change", function () {
+                ws.showReturning = this.checked; saveProfileToMemory();
+            });
+            sub.find("#blk_ws_editor").on("click", () => openWorldEditor());
+            sub.find("#blk_ws_rewrite").on("click", () => {
+                stateStore.setPendingFullRewrite("world", !stateStore.isPendingFullRewrite("world"));
+                renderBlocksTab(c);
+            });
+            sub.find("#blk_ws_reset").on("click", () => {
+                if (!confirm("Clear this chat's World State? The next reply will describe the scene from scratch.")) return;
+                stateStore.reset("world");
+                meguminScheduleBlocksRefresh();
+                toastr.info("World State cleared for this chat.", "Megumin Suite");
             });
             list.append(sub);
         }

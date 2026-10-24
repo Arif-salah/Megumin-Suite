@@ -40,6 +40,11 @@ export function setActiveNpcPfpRequest(v) { activeNpcPfpRequest = v; }
 export let activeNpcUpdateRequest = null;
 export function setActiveNpcUpdateRequest(v) { activeNpcUpdateRequest = v; }
 
+// World State side-model extraction: { system, user, prefill } built by
+// renderWorldExtractPrompt. Set only for the length of one quiet generation.
+export let activeWorldExtractRequest = null;
+export function setActiveWorldExtractRequest(v) { activeWorldExtractRequest = v; }
+
 // Memory Core: the chunk text being summarised.
 export let activeMemorySummarizationRequest = null;
 export function setActiveMemorySummarizationRequest(v) { activeMemorySummarizationRequest = v; }
@@ -73,6 +78,7 @@ export function isBackgroundGenerationActive() {
         activeNpcPfpRequest ||
         activeNpcUpdateRequest ||
         activeMemorySummarizationRequest ||
+        activeWorldExtractRequest ||
         activeGenerationOrder
     );
 }

@@ -160,9 +160,11 @@ export function npcParseBlock(rawBlock) {
 
 // Scans the chat and extracts Image Tags for relevant NPCs
 // OPTIMIZED: Pre-computes NPC text once, uses cached keywords
-export function getRelevantNpcImageTags() {
+// `force`: the manual image prompt includes relevant NPC tags whenever there
+// are any; the inline image instruction still follows the Inject NPC Tags toggle.
+export function getRelevantNpcImageTags({ force = false } = {}) {
     const s = localProfile?.imageGen;
-    if (!s || !s.injectNpcTags) return "";
+    if (!s || (!s.injectNpcTags && !force)) return "";
     
     const nb = localProfile?.npcBank;
     if (!nb || !nb.npcs || nb.npcs.length === 0) return "";

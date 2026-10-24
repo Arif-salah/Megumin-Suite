@@ -3,6 +3,18 @@
 
 export const directStyles = [
     {
+      id: "dir_v11",
+      name: "V11 Default",
+      desc: "An overt narrator with a voice and opinions, in every paragraph. Never a camera.",
+      rule: "an overt narrator teller with a voice and opinions, present in every paragraph. Do not write as an effaced narrator or a camera."
+    },
+    {
+      id: "dir_v11_inside",
+      name: "V11 Inside",
+      desc: "The narration rides inside one character at a time, never yours, and sees the scene the way they would.",
+      rule: "a teller who rides inside one character at a time, any character except {{user}}, and sees the scene through them: what they notice, and how they would put it. Once per response, a line of your narration can sound like that character's own thoughts, in their words and with their attitude. That line shows how they see things, and what they hide stays hidden. Change the character you follow only at a scene break; in first person, always follow {{char}}."
+    },
+    {
       id: "dir_v10_ukiyo",
       name: "V10 Ukiyo Default",
       desc: "The register shifts scene to scene and never repeats the last turn's temperature.",

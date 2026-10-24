@@ -12,6 +12,7 @@ import { DEFAULT_PROMPTS } from "../../prompts/index.js";
 import { renderPromptEditor } from "../../ui/promptEditor.js";
 import { downloadJsonFile } from "../../utils/download.js";
 import { getChatForNpcScan } from "../../engine/chatText.js";
+import { runWithChomusuke } from "../../engine/tasks.js";
 import { npcBuildTextFromData, npcParseBlock, meguminFindNpcDossiers, npcCreateRecord } from "./data.js";
 import { npcBodyFields, npcVitalsFields, NPC_FIELD_TYPES, NPC_DEFAULT_FIELDS, npcBuildUpdatePrompt } from "./fields.js";
 import { npcParseUpdateBlocks, npcApplyUpdates } from "./updates.js";
@@ -61,7 +62,7 @@ export function renderNpcBank(c) {
                     <i class="fa-solid fa-address-book"></i>
                 </div>
                 <div>
-                    <h2>NPCs Bank</h2>
+                    <h2>NPC Bank</h2>
                     <p>Automatically extract and track significant NPCs in the story.</p>
                 </div>
             </div>
@@ -326,9 +327,13 @@ export function renderNpcBank(c) {
             const chat = context?.chat;
             const msgIndex = (chat && chat.length > 0) ? chat.length - 1 : 0;
             const existingNames = (localProfile.npcBank.npcs || []).map(n => n.name).join(", ");
-            setActiveNpcScanRequest({ chatText, existingNames });
             
-            let rawOutput = await generateQuietPrompt({ prompt: "___PS_NPC_SCAN___" });
+            // Marker set inside the job (Chomusuke runs are queued; set while
+            // waiting, it would hijack the generation running ahead of it).
+            let rawOutput = await runWithChomusuke("npc", () => {
+                setActiveNpcScanRequest({ chatText, existingNames });
+                return generateQuietPrompt({ prompt: "___PS_NPC_SCAN___" });
+            });
             
             let addedCount = 0;
             for (const dossier of meguminFindNpcDossiers(rawOutput)) {
@@ -720,14 +725,18 @@ export function renderNpcList() {
             // built from another chat's story would be worse than not applying it.
             const identity = meguminActiveDataIdentity();
 
-            setActiveNpcUpdateRequest({
+            const updateRequest = {
                 npcName: target.name,
                 npcText: npcBuildTextFromData(target),
                 chatText: getChatForNpcScan(),
                 rules
-            });
+            };
             try {
-                const raw = await generateQuietPrompt({ prompt: "___PS_NPC_UPDATE___" });
+                // Marker set inside the job (Chomusuke runs are queued).
+                const raw = await runWithChomusuke("npc", () => {
+                    setActiveNpcUpdateRequest(updateRequest);
+                    return generateQuietPrompt({ prompt: "___PS_NPC_UPDATE___" });
+                });
                 const cleaned = String(raw || "").replace(/<think>[\s\S]*?<\/think>/g, "").trim();
 
                 if (meguminActiveDataIdentity() !== identity) {

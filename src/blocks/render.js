@@ -25,10 +25,19 @@
 
 import { esc, renderBody } from "./text.js";
 import { BLOCK_TREATMENTS } from "./treatments.js";
+import { chomusukeStatusText, getChomusukeStatus, stopFromIndicator } from "../engine/chomusukeStatus.js";
 
 const CARD_CLASS = "meg-blocks";
 const HIDDEN_ATTR = "data-meg-blocks-hidden";
 const STAMP_ATTR = "data-meg-blocks-stamp";
+
+// Short fingerprint of a string for the redraw stamp (djb2).
+function textHash(s) {
+    const t = String(s || "");
+    let h = 5381;
+    for (let i = 0; i < t.length; i++) h = ((h << 5) + h + t.charCodeAt(i)) | 0;
+    return (h >>> 0).toString(36) + t.length;
+}
 
 // The class the preset's "Blocks display marker" regex puts on the <details> it
 // wraps the envelope in. See findMarkerNodes for why it exists and what happens
@@ -111,8 +120,9 @@ function readNameAttr(attrChunk) {
 // block body, plus the envelope's own stray text, with the tags taken out.
 // Used only to measure how much of the message tail to hide.
 function remnantTextOf(mes, blocks) {
-    if (!blocks.length) return "";
-    const first = Math.min(...blocks.map(b => b.at));
+    const withRaw = (blocks || []).filter(b => b && b.raw);
+    if (!withRaw.length) return "";
+    const first = Math.min(...withRaw.map(b => b.at));
     // From the envelope opener if there is one before the first block, so the
     // stray text of a <Blocks> line is measured too.
     const envAt = mes.search(/<Blocks\b[^>]*>/i);
@@ -121,7 +131,7 @@ function remnantTextOf(mes, blocks) {
     // model writes after the final block — a stray line, a sign-off — is not block
     // text, and counting it would come up short against what is actually hidden
     // and refuse the whole message.
-    const to = Math.max(...blocks.map(b => b.at + b.raw.length));
+    const to = Math.max(...withRaw.map(b => b.at + b.raw.length));
     return mes.slice(from, to).replace(/<[^>]*>/g, " ");
 }
 
@@ -270,6 +280,8 @@ function renderTreated(b, opts) {
         // line; one that does not still works, on the old inference.
         const parsed = t.parse(b.body, {
             keepPlaceholders: Boolean(opts && opts.preview),
+            // A repeating block's name="" attribute (a New NPC's name).
+            name: b.name || "",
             fields: (opts && opts.statFields && opts.statFields[b.def.id]) || null
         });
         if (!parsed) return "";
@@ -411,6 +423,24 @@ export function buildBlocksCard(blocks, opts = {}) {
         panel.appendChild(pane);
         panels.push(pane);
     });
+
+    // Chomusuke at work (plan 019): shown on the last message's card only
+    // while a job runs (body.meg-chomu-busy, features/blocks/chomusukeIndicator.js).
+    if (!opts.preview) {
+        const ind = doc.createElement("span");
+        ind.className = "meg-chomu";
+        // Only the cat and Stop show; what it is doing is in the tooltip.
+        const now = chomusukeStatusText(getChomusukeStatus());
+        ind.title = now ? `Chomusuke: ${now}` : "Chomusuke is working…";
+        ind.innerHTML = `<i class="fa-solid fa-cat meg-chomu-cat"></i><button type="button" class="meg-chomu-stop" title="Stop Chomusuke's jobs"><i class="fa-solid fa-stop"></i> Stop</button>`;
+        ind.addEventListener("click", e => e.stopPropagation());
+        ind.querySelector(".meg-chomu-stop").addEventListener("click", e => {
+            e.stopPropagation();
+            e.preventDefault();
+            stopFromIndicator();
+        });
+        tabs.appendChild(ind);
+    }
 
     // Collapse control sits at the end of the strip, where the drawing put it.
     const chev = doc.createElement("button");
@@ -605,6 +635,47 @@ export function applyBlocksToMessage(root, mes, registry, opts = {}) {
     if (!root || typeof mes !== "string") return false;
 
     const blocks = extractBlocks(mes, registry);
+
+    // If a World_Update block was emitted, transform it into the full World State
+    // block using the compiled ledger text so the card renders the complete scene board.
+    const worldDef = (registry || []).find(r => r.id === "world");
+    let hasWorld = false;
+
+    blocks.forEach(b => {
+        if (b.def && (b.def.id === "world" || b.def.id === "worldUpdate")) {
+            hasWorld = true;
+            if (b.def.id === "worldUpdate" && worldDef) {
+                b.def = worldDef;
+            }
+            if (opts.worldStateText) {
+                b.body = opts.worldStateText;
+            }
+        }
+    });
+
+    // Option B: If World State is enabled and active on this chat, ensure the
+    // full scene board is always present on every AI message.
+    if (!hasWorld && opts.worldStateText && worldDef) {
+        blocks.push({
+            def: worldDef,
+            at: mes.length,
+            raw: "",
+            name: "",
+            body: opts.worldStateText,
+            truncated: false
+        });
+    }
+
+    // Blocks written for this message outside its text (plan 009: Chomusuke
+    // wrote them), handed in by tag. One the text already carries wins.
+    const storeBlocks = opts.storeBlocks || {};
+    Object.entries(storeBlocks).forEach(([tag, body]) => {
+        const def = (registry || []).find(r => r.tag === tag);
+        if (!def || !String(body || "").trim()) return;
+        if (blocks.some(b => b.def === def)) return;
+        blocks.push({ def, at: mes.length, raw: "", name: "", body: String(body), truncated: false });
+    });
+
     if (!blocks.length) {
         clearBlocksFromMessage(root);
         return false;
@@ -619,7 +690,11 @@ export function applyBlocksToMessage(root, mes, registry, opts = {}) {
     // still matched and every card was left exactly as it was — the blocks only
     // moved out of the chat after something else forced a re-render, which is why
     // it took a chat reload.
-    const stamp = `${mes.length}:${norm(mes).length}:${blocks.length}:${(opts.omit || []).join(",")}`;
+    //
+    // The World State board is drawn from the state store, not from the text, so
+    // reverting a reply or editing the state changes the board without changing
+    // a character of the message. Its text is part of the stamp for that reason.
+    const stamp = `${mes.length}:${norm(mes).length}:${blocks.length}:${(opts.omit || []).join(",")}:${opts.msgIndex !== undefined ? opts.msgIndex : ""}:${textHash(opts.worldStateText)}:${textHash(JSON.stringify(storeBlocks))}:${textHash(opts.extraStamp)}`;
     if (root.getAttribute(STAMP_ATTR) === stamp && root.querySelector(`.${CARD_CLASS}`)) return true;
 
     // Start from whatever SillyTavern rendered, every time. Re-hiding on top of a
@@ -696,7 +771,13 @@ export function applyBlocksToMessage(root, mes, registry, opts = {}) {
         return true;
     }
 
-    if (!target) return false;
+    if (!target) {
+        if (!tailBlocks.length && !leadFound.length) { clearBlocksFromMessage(root); return false; }
+        leadNodes.forEach(n => hideNode(n, doc));
+        root.appendChild(buildBlocksCard([...leadFound, ...tailBlocks], opts));
+        root.setAttribute(STAMP_ATTR, stamp);
+        return true;
+    }
 
     // Walk the tail backwards collecting nodes until they account for the block
     // text. The blocks are a suffix of the reply, which is what makes this

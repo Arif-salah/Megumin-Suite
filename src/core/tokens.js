@@ -34,7 +34,12 @@ export function updateLiveTokenCount() {
         // reaches the model, so counting both would roughly double the blocks.
         // The envelope is assembled FROM the per-block tags, which are counted
         // above, so skipping it here estimates the same payload either way.
-        "[[blocks]]"
+        "[[blocks]]",
+        // Plan 018: the V11 preset's split copies of the same parts.
+        "[[block_rules]]", "[[this_turn]]", "[[dice_rules]]", "[[img_rules]]",
+        "[[storyplan_rules]]", "[[storyplan_now]]", "[[npc_rules]]", "[[addon_rules]]",
+        // The style again, as written: [[aiprompt]] already counts it.
+        "[[style]]"
     ];
 
     Object.entries(dict).forEach(([key, value]) => {

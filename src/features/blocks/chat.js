@@ -14,6 +14,14 @@ import { meguminRenderRegistry, meguminBlocksTakenByPanel, meguminStatFieldMap }
 // One directed edge from the blocks feature to the NPC feature. No cycle:
 // nothing under features/npc/ imports the block card.
 import { npcDecorateUpdatePane } from "../npc/updateCard.js";
+import { npcDecorateNewPane } from "../npc/newCard.js";
+import { worldCardTextAt, worldExtractMessage, blocksCardTextAt, notebookCardTextAt } from "../../state/index.js";
+import { blocksReadForReply } from "./worker.js";
+import { bondsDecoratePane, sheetDecoratePane } from "../bonds/overview.js";
+import { worldDecoratePane } from "../worldstate/card.js";
+import { openWorldEditor } from "../worldstate/editor.js";
+import { NOTEBOOK_CARD_DEFS, notebookDecoratePane, notebookCardStamp } from "../notebook/card.js";
+import { notebookReadForReply } from "../notebook/worker.js";
 
 // ── Clicking a choice ────────────────────────────────────────────────────────
 //
@@ -123,7 +131,28 @@ function meguminAnimateGate(msgIndex) {
 // the undo buttons on that one tab.
 export function meguminDecorateMessageBody(bodyEl, mesText, msgIndex) {
     try {
-        applyBlocksToMessage(bodyEl, mesText, meguminRenderRegistry(), {
+        // The world as it stood right after THIS message, drawn from the state
+        // store — never from the block text, which may only be a short update.
+        const wsText = typeof msgIndex === "number" ? worldCardTextAt(msgIndex) : "";
+        // Plan 009: blocks Chomusuke wrote for this message (not in its text).
+        const fromWorker = typeof msgIndex === "number" ? blocksCardTextAt(msgIndex) : {};
+        const storeBlocks = {};
+        Object.entries(fromWorker).forEach(([tag, b]) => {
+            storeBlocks[tag] = b.status === "ok" ? b.body
+                : b.status === "pending" ? (b.body || "*Writing this block…*")
+                : "*Nothing was written for this block. Use Read again.*";
+        });
+        // Plan 010: notebook lines Chomusuke wrote, on a reply that has no notebook block.
+        const nbText = typeof msgIndex === "number" ? notebookCardTextAt(msgIndex) : "";
+        if (nbText) storeBlocks.Notebook_Update = nbText;
+        // The notebook is not a block in the stack, but its blocks are drawn
+        // (behind a spoiler) on every reply that wrote one, on or off.
+        applyBlocksToMessage(bodyEl, mesText, [...meguminRenderRegistry(), ...NOTEBOOK_CARD_DEFS], {
+            msgIndex,
+            worldStateText: wsText,
+            storeBlocks,
+            // Drawn from the store, so a Revert changes the card without the text.
+            extraStamp: typeof msgIndex === "number" ? notebookCardStamp(msgIndex) : "",
             omit: meguminBlocksTakenByPanel(),
             onChoice: meguminApplyChoice,
             shouldAnimate: meguminAnimateGate(msgIndex),
@@ -136,6 +165,30 @@ export function meguminDecorateMessageBody(bodyEl, mesText, msgIndex) {
             // feature to fill in.
             const pane = bodyEl.querySelector('.meg-block-body[data-block-id="npcUpdate"]');
             if (pane) npcDecorateUpdatePane(pane, msgIndex);
+            // New NPC: one tab per dossier, each with "Open in NPC Bank".
+            bodyEl.querySelectorAll('.meg-block-body[data-block-id="newNpc"]').forEach(p => npcDecorateNewPane(p));
+            // Same for World State: what this reply changed, on top of the board.
+            // Bonds: a button to every character's bonds on file.
+            const bondsPane = bodyEl.querySelector('.meg-block-body[data-block-id="bonds"]');
+            if (bondsPane) bondsDecoratePane(bondsPane);
+            const sheetPane = bodyEl.querySelector('.meg-block-body[data-block-id="sheet"]');
+            if (sheetPane) sheetDecoratePane(sheetPane);
+            // Blocks Chomusuke wrote: a Read again button on each of their tabs.
+            Object.values(fromWorker).forEach(b => {
+                const pane = bodyEl.querySelector(`.meg-block-body[data-block-id="${b.id}"]`);
+                if (pane) blocksDecorateReadAgain(pane, msgIndex, b.status === "pending");
+            });
+            bodyEl.querySelectorAll('.meg-block-body[data-block-id="notebook"], .meg-block-body[data-block-id="notebookUpdate"]')
+                .forEach(p => notebookDecoratePane(p, msgIndex, {
+                    onChanged: () => meguminScheduleBlocksRefresh(),
+                    onReread: () => { notebookReadForReply(msgIndex, { force: true }); }
+                }));
+            const wsPane = bodyEl.querySelector('.meg-block-body[data-block-id="world"]');
+            if (wsPane) worldDecoratePane(wsPane, msgIndex, {
+                onEdit: () => openWorldEditor(),
+                onChanged: () => meguminScheduleBlocksRefresh(),
+                onReread: () => { worldExtractMessage(msgIndex, { force: true }); }
+            });
         }
     } catch (e) {
         // Fail visible: the reader keeps the raw block text, which is exactly
@@ -143,6 +196,29 @@ export function meguminDecorateMessageBody(bodyEl, mesText, msgIndex) {
         try { clearBlocksFromMessage(bodyEl); } catch (e2) { /* nothing left to do */ }
         console.debug(`[${extensionName}] block renderer skipped a message`, e);
     }
+}
+
+// "Read again" on a tab Chomusuke wrote: it reads the reply once more.
+function blocksDecorateReadAgain(pane, msgIndex, pending) {
+    if (pane.querySelector(".meg-blocks-reread")) return;
+    let tools = pane.querySelector(".meg-bonds-tools");
+    if (!tools) {
+        tools = document.createElement("div");
+        tools.className = "meg-bonds-tools";
+        pane.prepend(tools);
+    }
+    const b = document.createElement("button");
+    b.type = "button";
+    b.className = "meg-bonds-all meg-blocks-reread";
+    b.disabled = pending;
+    b.title = "Chomusuke reads this reply again and rewrites its blocks";
+    b.innerHTML = pending ? `<i class="fa-solid fa-spinner fa-spin"></i> Writing…` : `<i class="fa-solid fa-rotate"></i> Read again`;
+    b.addEventListener("click", e => {
+        e.preventDefault();
+        e.stopPropagation();
+        blocksReadForReply(msgIndex, { force: true });
+    });
+    tools.append(b);
 }
 
 // Every rendered message in the chat, matched back to its raw text by mesid.

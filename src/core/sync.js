@@ -22,25 +22,27 @@ export const TAB_SYNC_KEYS = {
     // the outside — it looked like the switch was not saving at all: it stuck on
     // the profile you set it on and was off everywhere else, which is what a
     // setting that failed to write looks like to the reader.
-    "PRESETS & COT": ["mode", "model", "cotEnabled", "thinkEffort", "customThinkEffort", "thinkingV2", "storyConfig", "enhancedDialogue"],
+    "Preset & Thinking": ["mode", "model", "cotEnabled", "thinkEffort", "customThinkEffort", "thinkingV2", "storyConfig", "enhancedDialogue"],
     "Persona": ["personality", "toggles"],
     "Writing Style": ["activeStyleId", "aiRule", "customStyles", "dnRatio"],
-    "Global Toggles & Add Ons": ["addons", "blocks", "userLanguage", "userPronouns", "onomatopoeia", "v9Limits"],
-    "BLOCKS": ["blockStack", "statBlocks", "blocks"],
+    "Language & Add-ons": ["addons", "blocks", "userLanguage", "userPronouns", "onomatopoeia", "v9Limits"],
+    "Blocks": ["blockStack", "statBlocks", "blocks", "hideBlocksFromAI"],
     "Story Director": ["storyPlan"],
-    "Dynamic Ban List": ["banList", "banListBackend", "banListCustomPromptsEnabled", "banListCustomPrompts"],
-    "Image Generation": ["imageGen"],
-    "NPCs Bank": ["npcBank"],
-    "Memory Core": ["memoryCore"]
+    "The Notebook": ["notebook"],
+    "Banned Phrases": ["banList", "banListBuiltIn", "banListShort", "banListBackend", "banListCustomPromptsEnabled", "banListCustomPrompts"],
+    "Images": ["imageGen"],
+    "NPC Bank": ["npcBank"],
+    "Memory": ["memoryCore"]
 };
 
-// These two are stored globally already, so there is nothing per-character to keep
-// in step and the toggle has no meaning on them.
-export const TABS_ALREADY_GLOBAL = ["Side Panel", "Global Settings"];
+// These are stored globally already, so there is nothing per-character to keep
+// in step and the toggle has no meaning on them. Chomusuke (plan 018) is one
+// setup in extension_settings, not a copy per profile.
+export const TABS_ALREADY_GLOBAL = ["Side Panel", "Settings", "Chomusuke"];
 
 // ── Story Config's own opt-out ───────────────────────────────────────────────
 //
-// Story Config's fields are drawn inside the PRESETS & COT tab, so they ride on
+// Story Config's fields are drawn inside the Preset & Thinking tab, so they ride on
 // that tab's Global switch. That bundles two different decisions: "every
 // character uses this engine" and "every character is the same genre, POV and
 // pace". The first is setup and people do want it everywhere; the second is the
@@ -53,7 +55,7 @@ export const TABS_ALREADY_GLOBAL = ["Side Panel", "Global Settings"];
 // keyed by tab title, and migrateRenamedTabs() rewrites a "Story Config" key
 // there into "Writing Style" (the tab was split once). A flag filed under that
 // name would be silently renamed away on the next load.
-const STORY_CONFIG_HOST_TAB = "PRESETS & COT";
+const STORY_CONFIG_HOST_TAB = "Preset & Thinking";
 
 export function meguminStoryConfigSyncs() {
     const store = extension_settings[extensionName];
@@ -142,6 +144,12 @@ export function applyTabKeysToAllProfiles(title) {
                 prof[k] = JSON.parse(JSON.stringify(currentData[k]));
                 prof[k].shortTermChunks = preservedShort || [];
                 prof[k].longTermVault = preservedLong || [];
+
+            } else if (k === "imageGen" && currentData[k]) {
+                if (!prof[k]) prof[k] = {};
+                prof[k] = JSON.parse(JSON.stringify(currentData[k]));
+                // Looks belong to each chat's file, never to a synced profile.
+                delete prof[k].characterTags;
 
             } else if (currentData[k] !== undefined) {
                 prof[k] = JSON.parse(JSON.stringify(currentData[k]));

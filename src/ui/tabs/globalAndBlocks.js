@@ -1,5 +1,5 @@
 // ────────────────────────────────────────────────────────────────────────────
-// Global Toggles & Blocks — add-ons, language, and block membership.
+// Language & Add-ons — language, pronouns, sound effects and the gameplay add-ons.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { Popup, POPUP_TYPE } from "../../st.js";
@@ -66,11 +66,11 @@ export function renderGlobalAndBlocks(c) {
         <div class="mtab-header">
             <div class="mtab-header-left">
                 <div class="mtab-header-icon" style="background: linear-gradient(135deg, #3b82f6, #10b981);">
-                    <i class="fa-solid fa-earth-americas"></i>
+                    <i class="fa-solid fa-puzzle-piece"></i>
                 </div>
                 <div>
-                    <h2>Global Toggles & Blocks</h2>
-                    <p>Configure global parameters, gameplay add-ons, and UI tracker blocks.</p>
+                    <h2>Language & Add-ons</h2>
+                    <p>The story's language and your pronouns, plus the gameplay add-ons.</p>
                 </div>
             </div>
             <div class="mtab-header-badge" style="background: rgba(59,130,246,0.12); color: #3b82f6; border: 1px solid rgba(59,130,246,0.25);">

@@ -1183,8 +1183,165 @@ function renderOneDice(d, animate) {
 export function renderDice(parsed, opts = {}) {
     const animate = Boolean(opts.animate);
     return parsed.rolls.map(d => renderOneDice(d, animate)).join("");
+}
+
+export function parseWorldUpdate(body) {
+    if (!body || typeof body !== "string") return null;
+    const lines = body.split(/\r?\n/);
+    const updates = [];
+
+    for (const raw of lines) {
+        const line = raw.trim();
+        if (!line || line.startsWith("<!--") || line.startsWith("//")) continue;
+
+        const m = line.match(/^[*\-•_\s]*([a-zA-Z\s&/]+?)[\*_\s]*:\s*(.+)$/);
+        if (!m) continue;
+
+        const rawKey = m[1].trim();
+        const value = plain(m[2]);
+        if (!value || /^\[.*\]$/.test(value)) continue;
+
+        let emoji = "📍";
+        const lk = rawKey.toLowerCase();
+        if (lk.includes("time") || lk.includes("date")) emoji = "📅";
+        else if (lk.includes("wx") || lk.includes("weather") || lk.includes("temp")) emoji = "🌡";
+        else if (lk.includes("outfit") || lk.includes("cloth")) emoji = "👗";
+        else if (lk.includes("pos") || lk.includes("posture")) emoji = "🧍";
+        else if (lk.includes("cond")) emoji = "❤️";
+        else if (lk.includes("carry") || lk.includes("item")) emoji = "🎒";
+        else if (lk.includes("npc")) emoji = "👥";
+        else if (lk.includes("thread")) emoji = "🔥";
+        else if (lk.includes("loc") || lk.includes("place")) emoji = "📍";
+
+        updates.push({ label: rawKey, value, emoji });
+    }
+
+    return updates.length > 0 ? { updates } : null;
+}
+
+export function renderWorldUpdate(parsed) {
+    const rows = parsed.updates.map(u => `
+        <div class="meg-ws-row">
+            <span class="meg-ws-k">${esc(u.emoji)} ${esc(u.label)}</span>
+            <span class="meg-ws-v">${inline(u.value)}</span>
+        </div>`).join("");
+
+    return `
+        <div class="meg-ws-person">
+            <div class="meg-ws-person-head">
+                <span class="meg-ws-av">📍</span>
+                <span class="meg-ws-nm">World State Update</span>
+                <span class="meg-ws-mood meg-ws-you">Delta</span>
+            </div>
+            <div class="meg-ws-rows">${rows}</div>
+        </div>`;
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// NEW NPC DOSSIER — a person card
+// ═════════════════════════════════════════════════════════════════════════════
+//
+// The dossier is "**Label:** value" runs: a header line of name and vitals
+// joined by " | ", then one field per run, lists as "* item" lines. Labels are
+// read as written (the reader can rename and add fields in the NPC Bank), and
+// only a few are recognised by meaning: the vitals, Role, Personality (chips),
+// Secrets (blurred), Image Tags (small tag chips). Fewer than two fields read
+// means the model drifted: back to prose.
+
+const NPC_LABEL = /\*\*([^*\n]{1,48}?):\*\*/g;
+const NPC_VITAL = /^(age|sex|gender|orientation|species|race|pronouns)$/i;
+const NPC_NAME = /^(name|full name)$/i;
+const NPC_ROLE = /^(role|occupation|title)$/i;
+const NPC_CHIPS = /^(personality|traits)$/i;
+const NPC_SECRET = /secret/i;
+const NPC_TAGS = /image\s*tags?/i;
+
+export function parseNewNpc(body, opts = {}) {
+    const text = String(body || "");
+    const marks = [];
+    let m;
+    NPC_LABEL.lastIndex = 0;
+    while ((m = NPC_LABEL.exec(text)) !== null) marks.push({ label: m[1].trim(), start: m.index, end: NPC_LABEL.lastIndex });
+    if (marks.length < 2) return null;
+
+    // Same rule as World State: brackets are dropped only when the body is the
+    // template itself; in a real reply they are the model's own words.
+    const keep = Boolean(opts.keepPlaceholders) || !isUnfilledTemplate(text);
+    const fields = [];
+    marks.forEach((mk, i) => {
+        let raw = text.slice(mk.end, i + 1 < marks.length ? marks[i + 1].start : text.length);
+        // The header line joins runs with " | ": that separator belongs to no value.
+        raw = raw.replace(/\s*\|\s*$/, "").trim();
+        const lines = raw.split("\n").map(l => l.trim()).filter(Boolean);
+        const items = lines.filter(l => /^[*\-•]\s+/.test(l)).map(l => plain(l.replace(/^[*\-•]\s+/, "")));
+        const prose = lines.filter(l => !/^[*\-•]\s+/.test(l)).join(" ");
+        const value = readValue(prose, keep);
+        const list = items.map(x => readValue(x, keep)).filter(Boolean);
+        if (!value && !list.length) return;
+        fields.push({
+            label: plain(mk.label),
+            value: value ? value.value : "",
+            items: list.map(x => x.value),
+            ph: Boolean((value && value.ph) || list.some(x => x.ph))
+        });
+    });
+    if (fields.length < 2) return null;
+
+    const nameField = fields.find(f => NPC_NAME.test(f.label));
+    const name = plain(opts.name || (nameField && nameField.value) || "");
+    if (!name) return null;
+    const vitals = fields.filter(f => NPC_VITAL.test(f.label) && f.value);
+    const role = fields.find(f => NPC_ROLE.test(f.label));
+    const rest = fields.filter(f => f !== nameField && f !== role && !vitals.includes(f));
+    return { name, role: role ? role.value : "", vitals, fields: rest };
+}
+
+// One row, the same shape as a World State row: label on the left, value on
+// the right. Lists are lines, never pills, unless every item is a word or two.
+const NPC_SHORT = 26;
+
+function npcRow(f) {
+    const ph = f.ph ? " meg-ws-ph" : "";
+    const k = `<span class="meg-npc-k">${esc(f.label)}</span>`;
+    if (NPC_TAGS.test(f.label)) {
+        const tags = (f.items.length ? f.items : f.value.split(/\s*,\s*/)).filter(Boolean);
+        return `<div class="meg-npc-row${ph}">${k}<span class="meg-npc-v meg-npc-tags">${tags.map(t => `<span>${esc(t)}</span>`).join("")}</span></div>`;
+    }
+    const items = f.items.length ? f.items : [];
+    if (NPC_CHIPS.test(f.label)) {
+        const words = items.length ? items : f.value.split(/\s*[,;]\s*/).filter(Boolean);
+        if (words.length > 1 && words.every(w => plain(w).length <= NPC_SHORT)) {
+            return `<div class="meg-npc-row${ph}">${k}<span class="meg-npc-v meg-npc-chips">${words.map(t => `<span>${inline(t)}</span>`).join("")}</span></div>`;
+        }
+    }
+    const body = [
+        f.value ? `<span class="meg-npc-line">${inline(f.value)}</span>` : "",
+        ...items.map(t => `<span class="meg-npc-line meg-npc-item">${inline(t)}</span>`)
+    ].join("");
+    // Secrets the PC does not know: blurred until hover or focus (a tap), like World State's.
+    return NPC_SECRET.test(f.label)
+        ? `<div class="meg-npc-row meg-npc-secret${ph}">${k}<span class="meg-npc-v" tabindex="0" title="Click or focus to reveal"><span>${body}</span></span></div>`
+        : `<div class="meg-npc-row${ph}">${k}<span class="meg-npc-v">${body}</span></div>`;
+}
+
+export function renderNewNpc(parsed) {
+    const initial = (parsed.name.match(/\p{L}/u) || ["?"])[0].toUpperCase();
+    const vitals = parsed.vitals.map(v => `<span><b>${esc(v.label)}</b> ${esc(v.value)}</span>`).join("");
+    return `
+        <div class="meg-ws-person meg-npc-card" data-npc-name="${esc(parsed.name)}">
+            <div class="meg-ws-person-head meg-npc-head">
+                <span class="meg-ws-av meg-npc-av">${esc(initial)}</span>
+                <span class="meg-npc-id">
+                    <span class="meg-ws-nm">${esc(parsed.name)}</span>
+                    ${parsed.role ? `<span class="meg-npc-role">${inline(parsed.role)}</span>` : ""}
+                </span>
+                <span class="meg-ws-mood meg-npc-new">New</span>
+            </div>
+            ${vitals ? `<div class="meg-npc-vitals">${vitals}</div>` : ""}
+            <div class="meg-npc-rows">${parsed.fields.map(npcRow).join("")}</div>
+        </div>`;
+}
+
 // ═════════════════════════════════════════════════════════════════════════════
 // The table render.js routes through
 // ═════════════════════════════════════════════════════════════════════════════
@@ -1194,7 +1351,9 @@ export function renderDice(parsed, opts = {}) {
 // one of these a safe change rather than a rewrite of the card.
 export const BLOCK_TREATMENTS = {
     dice:    { parse: parseDice,       render: renderDice,       cls: "meg-dice-pane" },
-    world:   { parse: parseWorldState, render: renderWorldState, cls: "meg-ws-pane" },
+    world:       { parse: parseWorldState, render: renderWorldState, cls: "meg-ws-pane" },
+    worldUpdate: { parse: parseWorldUpdate, render: renderWorldUpdate, cls: "meg-ws-pane" },
     chatter: { parse: parseChatter,    render: renderChatter,    cls: "meg-chat-pane" },
-    sheet:   { parse: parseSheet,      render: renderSheet,      cls: "meg-sheet-pane" }
+    sheet:   { parse: parseSheet,      render: renderSheet,      cls: "meg-sheet-pane" },
+    newNpc:  { parse: parseNewNpc,     render: renderNewNpc,     cls: "meg-npc-pane" }
 };

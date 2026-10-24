@@ -1,0 +1,734 @@
+{
+    "temperature": 0.9,
+    "frequency_penalty": 0,
+    "presence_penalty": 0,
+    "top_p": 0.95,
+    "top_k": 0,
+    "top_a": 0,
+    "min_p": 0,
+    "repetition_penalty": 1,
+    "max_context_unlocked": true,
+    "tool_reasoning_mode": "disabled",
+    "openai_max_context": 2000000,
+    "openai_max_tokens": 20000,
+    "names_behavior": 0,
+    "send_if_empty": "",
+    "impersonation_prompt": "[Write your next reply from the point of view of {{user}}, using the chat history so far as a guideline for the writing style of {{user}}. Don't write as {{char}} or system. Don't describe actions of {{char}}.]",
+    "new_chat_prompt": "[Start a new Chat]",
+    "new_group_chat_prompt": "[Start a new group chat. Group members: {{group}}]",
+    "new_example_chat_prompt": "[Example Chat]",
+    "continue_nudge_prompt": "[Continue your last message without repeating its original content.]",
+    "bias_preset_selected": "Prefill 2 Gemini ",
+    "wi_format": "{0}",
+    "scenario_format": "{{scenario}}",
+    "personality_format": "{{personality}}",
+    "group_nudge_prompt": "[Write the next reply only as {{char}}.]",
+    "stream_openai": true,
+    "prompts": [
+        {
+            "name": "Main Prompt",
+            "system_prompt": true,
+            "role": "system",
+            "content": "[[prompt1]] [[main]] [[prompt2]]\n[[pronouns]]\n[[control]]\n[[OOC]]\n\n[[prompt3]]",
+            "identifier": "main",
+            "injection_position": 0,
+            "injection_depth": 4,
+            "injection_order": 100,
+            "injection_trigger": [],
+            "forbid_overrides": true
+        },
+        {
+            "name": "</history>",
+            "system_prompt": true,
+            "role": "system",
+            "content": "</history>",
+            "identifier": "nsfw",
+            "injection_position": 1,
+            "injection_depth": 1,
+            "injection_order": 100,
+            "injection_trigger": [],
+            "forbid_overrides": false
+        },
+        {
+            "identifier": "dialogueExamples",
+            "name": "Chat Examples",
+            "system_prompt": true,
+            "marker": true
+        },
+        {
+            "name": "Story settings",
+            "system_prompt": true,
+            "role": "system",
+            "content": "[[config]]",
+            "identifier": "jailbreak",
+            "injection_position": 1,
+            "injection_depth": 1,
+            "injection_order": 103,
+            "injection_trigger": [],
+            "forbid_overrides": true
+        },
+        {
+            "identifier": "chatHistory",
+            "name": "Chat History",
+            "system_prompt": true,
+            "marker": true
+        },
+        {
+            "identifier": "worldInfoAfter",
+            "name": "World Info (after)",
+            "system_prompt": true,
+            "marker": true,
+            "role": "system",
+            "content": "",
+            "injection_position": 0,
+            "injection_depth": 4,
+            "injection_order": 100,
+            "injection_trigger": [],
+            "forbid_overrides": false
+        },
+        {
+            "identifier": "worldInfoBefore",
+            "name": "World Info (before)",
+            "system_prompt": true,
+            "marker": true,
+            "role": "system",
+            "content": "",
+            "injection_position": 0,
+            "injection_depth": 4,
+            "injection_order": 100,
+            "injection_trigger": [],
+            "forbid_overrides": false
+        },
+        {
+            "identifier": "enhanceDefinitions",
+            "role": "assistant",
+            "name": "Prefill only and only for gemini",
+            "content": "[[prefill]]",
+            "system_prompt": true,
+            "marker": false,
+            "injection_position": 0,
+            "injection_depth": 4,
+            "injection_order": 100,
+            "injection_trigger": [],
+            "forbid_overrides": false
+        },
+        {
+            "identifier": "charDescription",
+            "name": "Char Description",
+            "system_prompt": true,
+            "marker": true,
+            "role": "system",
+            "content": "",
+            "injection_position": 0,
+            "injection_depth": 4,
+            "injection_order": 100,
+            "injection_trigger": [],
+            "forbid_overrides": false
+        },
+        {
+            "identifier": "charPersonality",
+            "name": "Char Personality",
+            "system_prompt": true,
+            "marker": true,
+            "role": "system",
+            "content": "",
+            "injection_position": 0,
+            "injection_depth": 4,
+            "injection_order": 100,
+            "injection_trigger": [],
+            "forbid_overrides": false
+        },
+        {
+            "identifier": "scenario",
+            "name": "Scenario",
+            "system_prompt": true,
+            "marker": true,
+            "role": "system",
+            "content": "",
+            "injection_position": 0,
+            "injection_depth": 4,
+            "injection_order": 100,
+            "injection_trigger": [],
+            "forbid_overrides": false
+        },
+        {
+            "identifier": "personaDescription",
+            "name": "Persona Description",
+            "system_prompt": true,
+            "marker": true,
+            "role": "system",
+            "content": "",
+            "injection_position": 0,
+            "injection_depth": 4,
+            "injection_order": 100,
+            "injection_trigger": [],
+            "forbid_overrides": false
+        },
+        {
+            "identifier": "32d2b9b2-8de5-43c1-95db-5c18eda6f163",
+            "system_prompt": false,
+            "enabled": false,
+            "marker": false,
+            "name": "</lore><user_persona>",
+            "role": "system",
+            "content": "</character_sheet>\n<user_persona>\n{{user}}, the character the reader plays:\n",
+            "injection_position": 0,
+            "injection_depth": 4,
+            "injection_order": 100,
+            "injection_trigger": [],
+            "forbid_overrides": false
+        },
+        {
+            "identifier": "b1e50687-f98d-41aa-9785-230879068ad1",
+            "system_prompt": false,
+            "enabled": false,
+            "marker": false,
+            "name": "</user_persona>",
+            "role": "system",
+            "content": "</user_persona>",
+            "injection_position": 0,
+            "injection_depth": 4,
+            "injection_order": 100,
+            "injection_trigger": [],
+            "forbid_overrides": false
+        },
+        {
+            "identifier": "a5a70637-5396-44bf-9af0-484866e75b7e",
+            "system_prompt": false,
+            "enabled": false,
+            "marker": false,
+            "name": "<lore>",
+            "role": "system",
+            "content": "<character_sheet>\nThe lore, and the sheets for {{char}} and the characters around them:",
+            "injection_position": 0,
+            "injection_depth": 4,
+            "injection_order": 100,
+            "injection_trigger": [],
+            "forbid_overrides": false
+        },
+        {
+            "identifier": "78a2405c-7bfb-4599-bad3-4bc53f556557",
+            "system_prompt": false,
+            "enabled": false,
+            "marker": false,
+            "name": "<history>",
+            "role": "system",
+            "content": "<history>\n\n[[long-Memory]]\n\n[[Short-memory]]",
+            "injection_position": 0,
+            "injection_depth": 4,
+            "injection_order": 100,
+            "injection_trigger": [],
+            "forbid_overrides": false
+        },
+        {
+            "identifier": "853f2bc6-6bda-49d8-bf94-896fc25e0f29",
+            "system_prompt": false,
+            "enabled": false,
+            "marker": false,
+            "name": "USER",
+            "role": "user",
+            "content": "Before we start: I know this is fiction, and I'm not my character. If {{user}} gets scared, hurt, or upset, that's part of the story, and I'm enjoying it. Write the story the way you'd write it anyway, and don't change it for my sake.",
+            "injection_position": 0,
+            "injection_depth": 4,
+            "injection_order": 100,
+            "injection_trigger": [],
+            "forbid_overrides": false
+        },
+        {
+            "identifier": "8fe3941c-a18d-4000-b6f1-695e6fe1136f",
+            "system_prompt": false,
+            "enabled": false,
+            "marker": false,
+            "name": "Main 2",
+            "role": "system",
+            "content": "[[prompt4]]\n\n[[prompt5]]\n\n[[prompt6]]\n[[aiprompt]]\n\n[[notebook]]",
+            "injection_position": 0,
+            "injection_depth": 4,
+            "injection_order": 100,
+            "injection_trigger": [],
+            "forbid_overrides": false
+        },
+        {
+            "identifier": "c77668b9-29be-456c-a9d3-c0a1e0c9d55f",
+            "system_prompt": false,
+            "enabled": false,
+            "marker": false,
+            "name": "Add Your Custom prompt here",
+            "role": "system",
+            "content": "",
+            "injection_position": 0,
+            "injection_depth": 4,
+            "injection_order": 100,
+            "injection_trigger": [],
+            "forbid_overrides": false
+        },
+        {
+            "identifier": "7fce9ff3-e6c3-41ca-af3a-5dcb2ec58146",
+            "system_prompt": false,
+            "enabled": false,
+            "marker": false,
+            "name": "Content rule",
+            "role": "system",
+            "content": "[[content]]",
+            "injection_position": 1,
+            "injection_depth": 1,
+            "injection_order": 102,
+            "injection_trigger": [],
+            "forbid_overrides": false
+        },
+        {
+            "identifier": "megumin-addon-rules",
+            "name": "Add-on rules",
+            "system_prompt": false,
+            "enabled": true,
+            "marker": false,
+            "role": "system",
+            "content": "[[addon_rules]]\n\n[[storyplan_rules]]",
+            "injection_position": 0,
+            "injection_depth": 4,
+            "injection_order": 100,
+            "injection_trigger": [],
+            "forbid_overrides": false
+        },
+        {
+            "identifier": "megumin-banlist",
+            "name": "Ban list",
+            "system_prompt": false,
+            "enabled": true,
+            "marker": false,
+            "role": "system",
+            "content": "[[banned]]",
+            "injection_position": 0,
+            "injection_depth": 4,
+            "injection_order": 100,
+            "injection_trigger": [],
+            "forbid_overrides": false
+        },
+        {
+            "identifier": "megumin-block-rules",
+            "name": "Block rules",
+            "system_prompt": false,
+            "enabled": true,
+            "marker": false,
+            "role": "system",
+            "content": "[[block_rules]]\n\n[[npc_rules]]\n\n[[dice_rules]]\n\n[[img_rules]]",
+            "injection_position": 0,
+            "injection_depth": 4,
+            "injection_order": 100,
+            "injection_trigger": [],
+            "forbid_overrides": false
+        },
+        {
+            "identifier": "megumin-current-info",
+            "name": "Current info",
+            "system_prompt": false,
+            "enabled": true,
+            "marker": false,
+            "role": "system",
+            "content": "[[infoblockcurrent]]\n\n[[npc list]]\n\n[[storyplan_now]]",
+            "injection_position": 1,
+            "injection_depth": 1,
+            "injection_order": 101,
+            "injection_trigger": [],
+            "forbid_overrides": false
+        },
+        {
+            "identifier": "megumin-thinking",
+            "name": "Thinking",
+            "system_prompt": false,
+            "enabled": true,
+            "marker": false,
+            "role": "system",
+            "content": "[[thinking]]",
+            "injection_position": 1,
+            "injection_depth": 1,
+            "injection_order": 104,
+            "injection_trigger": [],
+            "forbid_overrides": false
+        },
+        {
+            "identifier": "megumin-this-turn",
+            "name": "This turn",
+            "system_prompt": false,
+            "enabled": true,
+            "marker": false,
+            "role": "system",
+            "content": "[[this_turn]]\n\n[[formatting]]\n\n[[reminder]]\n[[Language]]\n[[MVU]]\n\nThis is fiction. When {{user}} attempts something the world would not allow, answer inside the story. Do not step out of the story to refuse or comment.",
+            "injection_position": 1,
+            "injection_depth": 1,
+            "injection_order": 105,
+            "injection_trigger": [],
+            "forbid_overrides": false
+        }
+    ],
+    "prompt_order": [
+        {
+            "character_id": 100000,
+            "order": [
+                {
+                    "identifier": "main",
+                    "enabled": true
+                },
+                {
+                    "identifier": "worldInfoBefore",
+                    "enabled": true
+                },
+                {
+                    "identifier": "charDescription",
+                    "enabled": true
+                },
+                {
+                    "identifier": "charPersonality",
+                    "enabled": true
+                },
+                {
+                    "identifier": "scenario",
+                    "enabled": true
+                },
+                {
+                    "identifier": "enhanceDefinitions",
+                    "enabled": false
+                },
+                {
+                    "identifier": "nsfw",
+                    "enabled": true
+                },
+                {
+                    "identifier": "worldInfoAfter",
+                    "enabled": true
+                },
+                {
+                    "identifier": "dialogueExamples",
+                    "enabled": true
+                },
+                {
+                    "identifier": "chatHistory",
+                    "enabled": true
+                },
+                {
+                    "identifier": "jailbreak",
+                    "enabled": true
+                }
+            ]
+        },
+        {
+            "character_id": 100001,
+            "order": [
+                {
+                    "identifier": "main",
+                    "enabled": true
+                },
+                {
+                    "identifier": "8fe3941c-a18d-4000-b6f1-695e6fe1136f",
+                    "enabled": true
+                },
+                {
+                    "identifier": "megumin-addon-rules",
+                    "enabled": true
+                },
+                {
+                    "identifier": "megumin-banlist",
+                    "enabled": true
+                },
+                {
+                    "identifier": "megumin-block-rules",
+                    "enabled": true
+                },
+                {
+                    "identifier": "c77668b9-29be-456c-a9d3-c0a1e0c9d55f",
+                    "enabled": false
+                },
+                {
+                    "identifier": "a5a70637-5396-44bf-9af0-484866e75b7e",
+                    "enabled": true
+                },
+                {
+                    "identifier": "worldInfoBefore",
+                    "enabled": true
+                },
+                {
+                    "identifier": "charDescription",
+                    "enabled": true
+                },
+                {
+                    "identifier": "charPersonality",
+                    "enabled": true
+                },
+                {
+                    "identifier": "dialogueExamples",
+                    "enabled": true
+                },
+                {
+                    "identifier": "scenario",
+                    "enabled": true
+                },
+                {
+                    "identifier": "worldInfoAfter",
+                    "enabled": true
+                },
+                {
+                    "identifier": "32d2b9b2-8de5-43c1-95db-5c18eda6f163",
+                    "enabled": true
+                },
+                {
+                    "identifier": "personaDescription",
+                    "enabled": true
+                },
+                {
+                    "identifier": "b1e50687-f98d-41aa-9785-230879068ad1",
+                    "enabled": true
+                },
+                {
+                    "identifier": "853f2bc6-6bda-49d8-bf94-896fc25e0f29",
+                    "enabled": true
+                },
+                {
+                    "identifier": "78a2405c-7bfb-4599-bad3-4bc53f556557",
+                    "enabled": true
+                },
+                {
+                    "identifier": "chatHistory",
+                    "enabled": true
+                },
+                {
+                    "identifier": "nsfw",
+                    "enabled": true
+                },
+                {
+                    "identifier": "megumin-current-info",
+                    "enabled": true
+                },
+                {
+                    "identifier": "7fce9ff3-e6c3-41ca-af3a-5dcb2ec58146",
+                    "enabled": true
+                },
+                {
+                    "identifier": "jailbreak",
+                    "enabled": true
+                },
+                {
+                    "identifier": "megumin-thinking",
+                    "enabled": true
+                },
+                {
+                    "identifier": "megumin-this-turn",
+                    "enabled": true
+                },
+                {
+                    "identifier": "enhanceDefinitions",
+                    "enabled": false
+                }
+            ]
+        }
+    ],
+    "assistant_prefill": "",
+    "assistant_impersonation": "",
+    "use_sysprompt": false,
+    "squash_system_messages": true,
+    "media_inlining": true,
+    "inline_image_quality": "auto",
+    "continue_prefill": false,
+    "continue_postfix": " ",
+    "function_calling": false,
+    "tool_call_recurse_limit": 5,
+    "show_thoughts": true,
+    "reasoning_effort": "high",
+    "verbosity": "auto",
+    "enable_web_search": false,
+    "seed": -1,
+    "n": 1,
+    "request_images": false,
+    "request_image_aspect_ratio": "",
+    "request_image_resolution": "",
+    "extensions": {
+        "regex_scripts": [
+            {
+                "id": "ae712608-4101-46aa-b274-a57ced4d7cde",
+                "scriptName": "image gen regex",
+                "findRegex": "/<!-- kazuma-inline-start:[^>]*-->[\\s\\S]*?title=\"([^\"]*)\"[\\s\\S]*?<!-- kazuma-inline-end:[^>]*-->/g",
+                "replaceString": "<img prompt=\"$1\">",
+                "trimStrings": [],
+                "placement": [
+                    2
+                ],
+                "disabled": false,
+                "markdownOnly": false,
+                "promptOnly": true,
+                "runOnEdit": true,
+                "substituteRegex": 0,
+                "minDepth": null,
+                "maxDepth": null
+            },
+            {
+                "id": "5b090d84-1552-4da9-b3f3-34b9db567557",
+                "scriptName": "image clean up",
+                "findRegex": "/<div class=\"kazuma-img-placeholder\"[^>]*>[\\s\\S]*?<\\/div>|<img\\s+[^>]*\\/>/g",
+                "replaceString": "",
+                "trimStrings": [],
+                "placement": [
+                    2
+                ],
+                "disabled": false,
+                "markdownOnly": false,
+                "promptOnly": true,
+                "runOnEdit": true,
+                "substituteRegex": 0,
+                "minDepth": null,
+                "maxDepth": null
+            },
+            {
+                "id": "fc56bf5f-2775-4471-91d1-17c303f5f081",
+                "scriptName": "narration|dialogue tags cleanup",
+                "findRegex": "/(?:<|&lt;)/?(?:narration|dialogue).*?(?:>|&gt;)/gi",
+                "replaceString": "",
+                "trimStrings": [],
+                "placement": [
+                    2
+                ],
+                "disabled": false,
+                "markdownOnly": true,
+                "promptOnly": true,
+                "runOnEdit": true,
+                "substituteRegex": 0,
+                "minDepth": null,
+                "maxDepth": null
+            },
+            {
+                "id": "b7e086b9-630b-42b3-8958-224db054952b",
+                "scriptName": "Thinking Hide A",
+                "findRegex": "/^[\\s\\S]*<\\/(?:ksc\\??|think(?:ing)?)>\\n?/",
+                "replaceString": "",
+                "trimStrings": [],
+                "placement": [
+                    2
+                ],
+                "disabled": true,
+                "markdownOnly": true,
+                "promptOnly": false,
+                "runOnEdit": true,
+                "substituteRegex": 0,
+                "minDepth": null,
+                "maxDepth": null
+            },
+            {
+                "id": "b54bc611-348b-4165-bff1-5b6ca9b7f7d8",
+                "scriptName": "Thinking Hide B",
+                "findRegex": "/(<disclaimer>.*?<\\/disclaimer>)|(<guifan>.*?<\\/guifan>)|(<danmu>.*?<\\/danmu>)|(<options>.*?<\\/options>)|```start|```end|<done>|`<done>`|(<(?:ksc\\??|think(?:ing)?)>[\\s\\S]*?<\\/(?:ksc\\??|think(?:ing)?)>(\\n)?)/gs",
+                "replaceString": "",
+                "trimStrings": [],
+                "placement": [
+                    2
+                ],
+                "disabled": true,
+                "markdownOnly": true,
+                "promptOnly": false,
+                "runOnEdit": true,
+                "substituteRegex": 0,
+                "minDepth": null,
+                "maxDepth": null
+            },
+            {
+                "id": "5749f2ae-67ab-493b-acfc-b1fffe4a93cc",
+                "scriptName": "Thinking Box",
+                "findRegex": "/^((?:<disclaimer>.*?<\\/disclaimer>|<guifan>.*?<\\/guifan>|<danmu>.*?<\\/danmu>|<options>.*?<\\/options>|```start|```end|<done>|`<done>`|.*?<\\/(?:ksc\\??|think(?:ing)?)>\\n?|<(?:ksc\\??|think(?:ing)?)>.*?<\\/(?:ksc\\??|think(?:ing)?)>\\n?)(?:\\s*(?:<disclaimer>.*?<\\/disclaimer>|<guifan>.*?<\\/guifan>|<danmu>.*?<\\/danmu>|<options>.*?<\\/options>|```start|```end|<done>|`<done>`|.*?<\\/(?:ksc\\??|think(?:ing)?)>\\n?|<(?:ksc\\??|think(?:ing)?)>.*?<\\/(?:ksc\\??|think(?:ing)?)>\\n?))*)/s",
+                "replaceString": "<details style=\"margin: 20px 0; border-radius: 8px; overflow: hidden; border: 1px solid #333;\">\n  <summary style=\"text-align: center; color: #aaa; letter-spacing: 2px; font-size: 0.75em; text-transform: uppercase; cursor: pointer; list-style: none; padding: 10px; background: rgba(255,255,255,0.05);\">\n    — Thinking Process —\n  </summary>\n  <div style=\"\n    padding: 25px; \n    font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; \n    font-size: 0.95em; \n    color: #eee; \n    line-height: 1.6; \n    background: #1e1e1e;\n    direction: ltr; \n    text-align: left;\n    white-space: pre-wrap;\n  \">\n$0\n  </div>\n</details>\n</font></span></b></i>",
+                "trimStrings": [],
+                "placement": [
+                    2
+                ],
+                "disabled": false,
+                "markdownOnly": true,
+                "promptOnly": false,
+                "runOnEdit": true,
+                "substituteRegex": 0,
+                "minDepth": null,
+                "maxDepth": null
+            },
+            {
+                "id": "d89fe7a9-1c4f-4686-a936-4dab3240ba9b",
+                "scriptName": "Blocks cleanup",
+                "findRegex": "/<Blocks>[\\s\\S]*?(?:<\\/Blocks\\s*>|$)/gi",
+                "replaceString": "",
+                "trimStrings": [],
+                "placement": [
+                    2
+                ],
+                "disabled": true,
+                "markdownOnly": false,
+                "promptOnly": true,
+                "runOnEdit": true,
+                "substituteRegex": 0,
+                "minDepth": null,
+                "maxDepth": null
+            },
+            {
+                "id": "4363fc0f-59c7-409f-b937-e35b207f53d2",
+                "scriptName": "Blocks display marker",
+                "findRegex": "/<Blocks>([\\s\\S]*?)(?:<\\/Blocks\\s*>|$)/gi",
+                "replaceString": "<details class=\"meg-blocks-src\" open><summary><b>Blocks</b></summary>$1</details>",
+                "trimStrings": [],
+                "placement": [
+                    2
+                ],
+                "disabled": false,
+                "markdownOnly": true,
+                "promptOnly": false,
+                "runOnEdit": true,
+                "substituteRegex": 0,
+                "minDepth": null,
+                "maxDepth": null
+            },
+            {
+                "id": "009341e5-6e2d-49ff-ab57-1396f7abf1dc",
+                "scriptName": "thinking color fix",
+                "findRegex": "/<\\/?font[^>]*>(?=(?:[^<]|<(?!\\/?(?:ksc\\??|think(?:ing)?)>))*<\\/(?:ksc\\??|think(?:ing)?)>)/g",
+                "replaceString": "",
+                "trimStrings": [],
+                "placement": [
+                    2
+                ],
+                "disabled": false,
+                "markdownOnly": true,
+                "promptOnly": false,
+                "runOnEdit": true,
+                "substituteRegex": 0,
+                "minDepth": null,
+                "maxDepth": null
+            },
+            {
+                "id": "75ecf077-1e30-40d0-ad7f-c888e1843c3b",
+                "scriptName": "Thinking cleanup A",
+                "findRegex": "/^[\\s\\S]*<\\/(?:ksc\\??|think(?:ing)?)>\\n?/",
+                "replaceString": "",
+                "trimStrings": [],
+                "placement": [
+                    2
+                ],
+                "disabled": false,
+                "markdownOnly": false,
+                "promptOnly": true,
+                "runOnEdit": true,
+                "substituteRegex": 0,
+                "minDepth": null,
+                "maxDepth": null
+            },
+            {
+                "id": "582ea01a-505f-4dd5-9bce-ab73d1c2a877",
+                "scriptName": "Thinking cleanup B",
+                "findRegex": "/(<disclaimer>.*?<\\/disclaimer>)|(<guifan>.*?<\\/guifan>)|(<danmu>.*?<\\/danmu>)|(<options>.*?<\\/options>)|```start|```end|<done>|`<done>`|(<(?:ksc\\??|think(?:ing)?)>[\\s\\S]*?<\\/(?:ksc\\??|think(?:ing)?)>(\\n)?)/gs",
+                "replaceString": "",
+                "trimStrings": [],
+                "placement": [
+                    2
+                ],
+                "disabled": false,
+                "markdownOnly": false,
+                "promptOnly": true,
+                "runOnEdit": true,
+                "substituteRegex": 0,
+                "minDepth": null,
+                "maxDepth": null
+            }
+        ]
+    }
+}

@@ -27,7 +27,9 @@ import { DEFAULT_PROMPTS } from "../../prompts/index.js";
 import { renderPromptEditor } from "../../ui/promptEditor.js";
 import { downloadJsonFile } from "../../utils/download.js";
 import { meguminCleanChatHistoryText } from "../../engine/chatText.js";
-import { useMeguminEngine } from "../../engine/tasks.js";
+import { runWithChomusuke } from "../../engine/tasks.js";
+import { warnChomusuke } from "../../engine/chomusukeNotice.js";
+import { suiteEnabled } from "../../core/power.js";
 import { memGetCachedKeywords, memExtractKeywords, memStringHash } from "./keywords.js";
 import {
     memGetCollectionId, memInsertToVectorDB, memDeleteFromVectorDB,
@@ -49,7 +51,7 @@ export function renderMemoryCore(c) {
                     <i class="fa-solid fa-memory"></i>
                 </div>
                 <div>
-                    <h2>Memory Core</h2>
+                    <h2>Memory</h2>
                     <p>3-Tier Context Management: Working, Short-Term, and Long-Term Vector DB.</p>
                 </div>
             </div>
@@ -71,7 +73,7 @@ export function renderMemoryCore(c) {
         <!-- MASTER TOGGLE -->
         <div class="mtab-toggle-row ${mem.enabled ? 'active' : ''}" id="mem_enable_card" style="margin-bottom: 20px;">
             <div class="toggle-info">
-                <div class="toggle-label"><i class="fa-solid fa-microchip" style="color:#10b981;"></i> Enable Memory Core</div>
+                <div class="toggle-label"><i class="fa-solid fa-microchip" style="color:#10b981;"></i> Turn on Memory</div>
                 <div class="toggle-desc">Archiving happens silently in the background. Old messages fade in the UI and are replaced in the prompt with injected summaries.</div>
             </div>
             <div class="ps-switch"></div>
@@ -183,13 +185,9 @@ export function renderMemoryCore(c) {
 
                 <div class="mtab-setting-row" style="border-top: 1px solid rgba(255,255,255,0.04); padding-top: 14px;">
                     <div class="set-info">
-                        <div class="set-label">Generator Backend</div>
-                        <div class="set-desc">Bypass standard preset configs for fast direct API calls, or use defined Megumin engine settings for character-style summaries.</div>
+                        <div class="set-label"><i class="fa-solid fa-cat" style="color: #f43f5e; margin-right: 6px;"></i> Background Worker</div>
+                        <div class="set-desc">Managed by the <b>Chomusuke</b> tab. Configure Chomusuke to offload memory chunk summarization to a dedicated worker LLM.</div>
                     </div>
-                    <select id="mem_backend" class="ps-modern-input" style="width: 220px; cursor: pointer;">
-                        <option value="direct" ${mem.backend === 'direct' ? 'selected' : ''}>Direct API Call (Fast)</option>
-                        <option value="preset" ${mem.backend === 'preset' ? 'selected' : ''}>Megumin Engine Preset</option>
-                    </select>
                 </div>
                 <div class="mtab-setting-row" style="border-top: 1px solid rgba(255,255,255,0.04); padding-top: 14px;">
                     <div class="set-info">
@@ -291,7 +289,7 @@ export function renderMemoryCore(c) {
             try {
                 const data = JSON.parse(evt.target.result);
                 if (!data.shortTermChunks && !data.longTermVault) {
-                    toastr.error("Invalid Memory Core file format.");
+                    toastr.error("This file isn't a Memory export.");
                     return;
                 }
                 if (confirm("Do you want to merge imported memories with your existing ones? (Click 'Cancel' to overwrite)")) {
@@ -394,7 +392,7 @@ export function renderMemoryCore(c) {
             $("#mem_header_badge").css({ background: 'rgba(16,185,129,0.12)', color: '#10b981', 'border-color': 'rgba(16,185,129,0.25)' }).html(`<i class="fa-solid fa-circle-check" style="font-size:0.6rem;"></i> Enabled`);
             
             if (isFirstEnable) {
-                toastr.success("Memory Core activated! Auto-archiving on every reply.", "Megumin Suite");
+                toastr.success("Memory is on. Older chat is archived after every reply.", "Megumin Suite");
                 // Re-render to update the dropdowns and settings values in the UI
                 setTimeout(() => renderMemoryCore(c), 200);
             } else {
@@ -463,11 +461,6 @@ export function renderMemoryCore(c) {
             if (inserted) toastr.success(`Vector Database Synced! (${count} archive${count === 1 ? "" : "s"})`);
             else toastr.error("Vector sync failed, see the console for the server response.");
         }
-    });
-
-    $("#mem_backend").on("change", function () {
-        mem.backend = $(this).val();
-        saveProfileToMemory();
     });
 
     // Trigger migration ONLY on 'change' (when they let go of the mouse click) to avoid spamming calculations
@@ -966,6 +959,7 @@ export async function memProcessPendingChunks(isAuto = false) {
     let changesMade = false;
     const newlyAddedBypassedVaultChunks = [];
     let bypassedCount = 0;
+    let emptySummaries = 0;
 
     try {
         const totalChunks = chunksToProcess.length;
@@ -1012,15 +1006,13 @@ export async function memProcessPendingChunks(isAuto = false) {
             toastr.info(`Extracting State: Messages ${chunkData.id} (${idx + 1}/${totalChunks})...`);
 
             let summaryResult = "";
-            setActiveMemorySummarizationRequest(chunkData.text);
 
-            if (!mem.backend || mem.backend === "direct") {
-                summaryResult = await generateQuietPrompt({ prompt: "___PS_MEMORY_SUMMARIZE___" });
-            } else {
-                await useMeguminEngine(async () => {
-                    summaryResult = await generateQuietPrompt({ prompt: "___PS_MEMORY_SUMMARIZE___" });
-                }, "Megumin Engine");
-            }
+            // Marker set inside the job: Chomusuke runs are queued, and a marker
+            // set while waiting would hijack the generation running ahead of it.
+            summaryResult = await runWithChomusuke("memory", async () => {
+                setActiveMemorySummarizationRequest(chunkData.text);
+                return await generateQuietPrompt({ prompt: "___PS_MEMORY_SUMMARIZE___" });
+            });
 
             if (typeof summaryResult !== "string") {
                 throw new Error(`Summarization returned no text for chunk ${chunkData.id}. SillyTavern is most likely not connected to an API - check the connection status, then run the archive again.`);
@@ -1036,8 +1028,13 @@ export async function memProcessPendingChunks(isAuto = false) {
                 });
                 changesMade = true;
                 chunksSinceLastSave++;
+            } else {
+                emptySummaries++;
             }
         }
+
+        // Once for the run, not per chunk. Those messages stay in the chat as they are.
+        if (emptySummaries > 0) warnChomusuke("empty", ["memory"]);
 
         // Show single summary toast for vault bypass instead of per-chunk spam
         if (bypassedCount > 0) {
@@ -1552,6 +1549,7 @@ function memRealIndexMap(chat, context) {
 
 // Rule A: The Prompt Interceptor (STRICT)
 window.megumin_memory_intercept = function (chat, _contextSize, _abort, type) {
+    if (!suiteEnabled()) return;
     const mem = localProfile?.memoryCore;
     if (!mem?.enabled) return;
 

@@ -13,23 +13,44 @@ import { localProfile } from "../core/state.js";
 import {
     activeStoryPlanRequest, activeBanListChat, activeImageGenRequest,
     activeNpcScanRequest, activeNpcPfpRequest, activeNpcUpdateRequest,
-    activeMemorySummarizationRequest,
+    activeMemorySummarizationRequest, activeWorldExtractRequest,
     activeGenerationOrder, isBackgroundGenerationActive,
     activeNpcImages, clearActiveNpcImages,
 } from "../core/activeRequests.js";
 import { DEFAULT_PROMPTS } from "../prompts/index.js";
+import { meguminEnginePrompts } from "../prompts/meguminEngine.js";
+import { IMAGE_V2_PROMPTS } from "../prompts/imageGenV2.js";
 import { sdGenreLabel } from "../features/storyplan/ui.js";
 import { memEnsureSemanticQueryFresh } from "../features/memory/vectordb.js";
 import { npcBuildDossierPrompt } from "../features/npc/fields.js";
 import { escapeRegex } from "../utils/regex.js";
 import { buildBaseDict } from "./buildBaseDict.js";
+import { hideBlocksInMessages } from "./hideBlocks.js";
+import { addThinkingNudge } from "./thinkingNudge.js";
+import { meguminAllBlockTags } from "../features/blocks/registry.js";
 import { meguminAllSlotTriggers } from "../../data/slots.js";
+import { suiteEnabled } from "../core/power.js";
+import { backgroundJobNow, reviewBackgroundPrompt } from "./bgPrompts.js";
+import { loreForChat, loreForNames, loreBlock } from "../core/lore.js";
 
 // Throttles the prompt-preview popup so token counting and rapid ST background
 // triggers can't stack popups. Read and written only by the injection handler.
 export let lastPromptPreviewTime = 0;
 
+// Every prompt goes through here. A background job's messages are built by
+// buildPromptInjection, then shown or logged (plan 013, engine/bgPrompts.js).
 export async function handlePromptInjection(data, type) {
+    const job = backgroundJobNow();
+    await buildPromptInjection(data, type);
+    if (!job) return;
+    // Token counts and dry runs are not a call being sent.
+    if (type === "count" || type === "dry" || type === "dryRun" || data?.dryRun === true || data?.dry === true) return;
+    const messages = data?.messages || data?.chat || (Array.isArray(data) ? data : null);
+    if (!messages || !Array.isArray(messages) || !messages.length) return;
+    await reviewBackgroundPrompt(messages, job);
+}
+
+async function buildPromptInjection(data, type) {
     const messages = data?.messages || data?.chat || (Array.isArray(data) ? data : null);
     if (!messages || !Array.isArray(messages)) return;
     // Opt IN, not opt out. The prefill breaks utility generations on Claude and
@@ -45,6 +66,9 @@ export async function handlePromptInjection(data, type) {
         // SillyTavern macro substitutions to get Lore and Persona
         const charLore = typeof substituteParams === 'function' ? substituteParams('{{description}}') : "No character description found.";
         const userPersona = typeof substituteParams === 'function' ? substituteParams('{{persona}}') : "No user persona found.";
+        // The lorebook entries the story itself has active: the world the plan is made in.
+        const worldLore = loreBlock(await loreForChat());
+        const charLoreAll = worldLore ? `${charLore}\n\n${worldLore}` : charLore;
 
         const sp = localProfile.storyPlan;
         const spCustom = sp.customPromptsEnabled ? sp.customPrompts : null;
@@ -68,7 +92,7 @@ export async function handlePromptInjection(data, type) {
 
         messages.push({
             "role": "system",
-            "content": sys.replace('{{charLore}}', charLore).replace('{{userPersona}}', userPersona).replace('{{chatHistory}}', activeStoryPlanRequest)
+            "content": sys.replace('{{charLore}}', () => charLoreAll).replace('{{userPersona}}', userPersona).replace('{{chatHistory}}', activeStoryPlanRequest)
         });
         messages.push({
             "role": "user",
@@ -97,6 +121,8 @@ export async function handlePromptInjection(data, type) {
         // in the shape the parser and the card expect rather than in whatever the
         // rules text happened to describe before the fields were data.
         const formatTemplate = npcBuildDossierPrompt(nbPrompts.dossierRules || DEFAULT_PROMPTS.npcBank.dossierRules);
+        // What the lorebook says about the people and places in the story.
+        const scanLore = loreBlock(await loreForChat());
 
         messages.push({
             "role": "system",
@@ -104,7 +130,7 @@ export async function handlePromptInjection(data, type) {
         });
         messages.push({
             "role": "user",
-            "content": `Analyze the following story history. Identify any SIGNIFICANT NPCs (characters with names and dialogue/impact) that are NOT in this list of already known NPCs: [${activeNpcScanRequest.existingNames || "None"}].\n\nFor every new significant NPC you find, generate a dossier using EXACTLY this format:\n\n${formatTemplate}\n\nStory History:\n<chat>\n${activeNpcScanRequest.chatText}\n</chat>`
+            "content": `Analyze the following story history. Identify any SIGNIFICANT NPCs (characters with names and dialogue/impact) that are NOT in this list of already known NPCs: [${activeNpcScanRequest.existingNames || "None"}].\n\nFor every new significant NPC you find, generate a dossier using EXACTLY this format:\n\n${formatTemplate}\n\n${scanLore ? `Use this lore for what it says about them:\n${scanLore}\n\n` : ""}Story History:\n<chat>\n${activeNpcScanRequest.chatText}\n</chat>`
         });
         messages.push({
             "role": "system",
@@ -120,12 +146,27 @@ export async function handlePromptInjection(data, type) {
         return;
     }
 
+    // --- WORLD STATE SIDE-MODEL EXTRACTION ---
+    // The whole prompt was built by the World State module (renderWorldExtractPrompt).
+    if (activeWorldExtractRequest) {
+        messages.length = 0;
+        const r = activeWorldExtractRequest;
+        messages.push({ "role": "system", "content": r.system });
+        messages.push({ "role": "user", "content": r.user });
+        if (!disablePrefill && r.prefill) {
+            messages.push({ "role": "assistant", "content": r.prefill });
+        }
+        console.log(`[${extensionName}] 🎯 Injected World State extraction prompt.`);
+        return;
+    }
+
     // --- INJECT FORCED NPC UPDATE PROMPT ---
     // The refresh button on an NPC card. Unlike the in-story update, this asks
     // about ONE named NPC and hands over their whole record, so the model is
     // comparing against what is actually on file rather than recalling it.
     if (activeNpcUpdateRequest) {
         messages.length = 0;
+        const npcLore = loreBlock(await loreForNames([activeNpcUpdateRequest.npcName]));
         const r = activeNpcUpdateRequest;
 
         messages.push({
@@ -134,7 +175,7 @@ export async function handlePromptInjection(data, type) {
         });
         messages.push({
             "role": "user",
-            "content": `Here is the record currently on file for ${r.npcName}:\n\n<npc_record>\n${r.npcText}\n</npc_record>\n\nHere is the story so far:\n\n<chat>\n${r.chatText}\n</chat>\n\n${r.rules}\n\nOutput ONLY the <NPC_Update> block for ${r.npcName}. If nothing on file has changed, output exactly: NO CHANGE`
+            "content": `Here is the record currently on file for ${r.npcName}:\n\n<npc_record>\n${r.npcText}\n</npc_record>\n\n${npcLore ? `What the lore says about ${r.npcName}:\n${npcLore}\n\n` : ""}Here is the story so far:\n\n<chat>\n${r.chatText}\n</chat>\n\n${r.rules}\n\nOutput ONLY the <NPC_Update> block for ${r.npcName}. If nothing on file has changed, output exactly: NO CHANGE`
         });
         messages.push({
             "role": "system",
@@ -169,6 +210,19 @@ export async function handlePromptInjection(data, type) {
     }
 
     // --- INJECT IMAGE GEN PROMPT ---
+    if (activeImageGenRequest && activeImageGenRequest.v2) {
+        // Image Gen V2: the prompt was built whole by v2/prompt.js.
+        messages.length = 0;
+        messages.push({ "role": "system", "content": activeImageGenRequest.v2.system });
+        messages.push({ "role": "user", "content": activeImageGenRequest.v2.user });
+        // The combined World State + image call starts its answer inside the World block.
+        if (!disablePrefill && activeImageGenRequest.v2.prefill) {
+            messages.push({ "role": "assistant", "content": activeImageGenRequest.v2.prefill });
+        }
+        console.log(`[${extensionName}] 🎯 Injected Image Gen V2 prompt.`);
+        return;
+    }
+
     if (activeImageGenRequest) {
         messages.length = 0;
         
@@ -184,14 +238,29 @@ export async function handlePromptInjection(data, type) {
             "role": "system",
             "content": sys
         });
-        messages.push({
-            "role": "user",
-            "content": userTask.replace('{{chatHistory}}', activeImageGenRequest.chatText)
+        // A saved custom prompt from before {{lastMessage}} gets the whole story in {{chatHistory}}.
+        const lastMsg = activeImageGenRequest.lastMessage || "";
+        const history = userTask.includes('{{lastMessage}}')
+            ? activeImageGenRequest.chatText
+            : [activeImageGenRequest.chatText, lastMsg].filter(Boolean).join("\n\n");
+        let imageUserContent = userTask.replace('{{chatHistory}}', () => history)
+                               .replace('{{lastMessage}}', () => lastMsg)
                                .replace('{{templateRules}}', activeImageGenRequest.templateRules)
                                .replace('{{extraStr}}', extraSection)
                                .replace('{{directLanguage}}', activeImageGenRequest.directLanguageStr)
                                .replace('{{npcImageTags}}', activeImageGenRequest.npcTagsStr) // <-- INJECT THEM
-                               .replace('{{templateExamples}}', activeImageGenRequest.templateExamples)
+                               .replace('{{templateExamples}}', activeImageGenRequest.templateExamples);
+        // Character and persona sheets: where the prompt asks for them, otherwise
+        // on top (saved custom prompts predate the token).
+        const sheets = activeImageGenRequest.characterSheets || "";
+        if (imageUserContent.includes('{{characterSheets}}')) {
+            imageUserContent = imageUserContent.replace('{{characterSheets}}', sheets);
+        } else if (sheets) {
+            imageUserContent = `${sheets}\n\n${imageUserContent}`;
+        }
+        messages.push({
+            "role": "user",
+            "content": imageUserContent
         });
         messages.push({
             "role": "system",
@@ -211,6 +280,9 @@ export async function handlePromptInjection(data, type) {
     // --- INJECT NPC PORTRAIT PROMPT ---
     if (activeNpcPfpRequest) {
         messages.length = 0;
+        // Their appearance may only be written in the lorebook.
+        const pfpLore = loreBlock(await loreForNames([activeNpcPfpRequest.npcName]));
+        const pfpText = pfpLore ? `${activeNpcPfpRequest.npcText}\n\n${pfpLore}` : activeNpcPfpRequest.npcText;
         const nbPrompts = (localProfile.npcBank && localProfile.npcBank.customPromptsEnabled && localProfile.npcBank.customPrompts) ? localProfile.npcBank.customPrompts : DEFAULT_PROMPTS.npcBank;
 
         messages.push({
@@ -220,10 +292,11 @@ export async function handlePromptInjection(data, type) {
         messages.push({
             "role": "user",
             "content": nbPrompts.userPrompt
-                .replace('{{npcText}}', activeNpcPfpRequest.npcText)
+                .replace('{{npcText}}', () => pfpText)
                 .replace('{{styleStr}}', activeNpcPfpRequest.styleStr)
                 .replace('{{perspStr}}', activeNpcPfpRequest.perspStr)
                 .replace('{{extraStr}}', activeNpcPfpRequest.extraStr)
+                + `\n\n${IMAGE_V2_PROMPTS.inEnglish}`
         });
         messages.push({
             "role": "system",
@@ -273,16 +346,31 @@ export async function handlePromptInjection(data, type) {
         return;
     }
 
+    // --- MEGUMIN ENGINE TASK (Writing Style generator) ---
+    // The whole prompt is the Megumin Engine one, built here, whatever preset the
+    // connection has loaded: through Chomusuke the worker's own preset would
+    // answer otherwise, and the order would never be read.
     if (activeGenerationOrder) {
-        for (let i = messages.length - 1; i >= 0; i--) {
-            if (messages[i].content && typeof messages[i].content === 'string') {
-                if (messages[i].content.includes("___PS_DUMMY___")) { messages.splice(i, 1); continue; }
-                if (messages[i].content.includes("[[order]]")) messages[i].content = messages[i].content.replace(/\[\[order\]\]/g, activeGenerationOrder);
-            }
-        }
+        messages.length = 0;
+        const E = meguminEnginePrompts;
+        const card = ["{{description}}", "{{personality}}", "{{scenario}}"]
+            .map(m => { try { return typeof substituteParams === "function" ? substituteParams(m) : ""; } catch (e) { return ""; } })
+            .map(s => String(s || "").trim())
+            .filter(s => s && !/^\{\{\w+\}\}$/.test(s))
+            .join("\n\n");
+        messages.push({ "role": "system", "content": E.main });
+        messages.push({ "role": "user", "content": `${E.characterOpen}${card}\n${E.characterClose}` });
+        messages.push({ "role": "user", "content": activeGenerationOrder });
+        messages.push({ "role": "system", "content": E.thinking });
+        if (!disablePrefill) messages.push({ "role": "assistant", "content": E.prefill });
+        console.log(`[${extensionName}] 🎯 Injected Megumin Engine prompt (Writing Style).`);
+        return;
     }
 
     if (!localProfile) return;
+    // Master switch off: the roleplay prompt goes out exactly as SillyTavern
+    // built it, [[placeholders]] and old blocks included.
+    if (!suiteEnabled()) return;
 
     // Semantic memory retrieval is a network call fired on a debounce, so without
     // waiting here the prompt can be assembled from the previous turn's matches.
@@ -311,9 +399,22 @@ export async function handlePromptInjection(data, type) {
     ["[[infoblock]]", "[[infoblock2]]", "[[npc_inner_chatter]]", "[[npc_inner_chatter2]]",
         "[[storytracker]]", "[[storytracker2]]", "[[npc_dossier2]]"].forEach(t => { dict[t] = ""; });
 
+    // Hide blocks from the AI (plan 008): the model reads the kept values once,
+    // in <Current_Info>, instead of every old block in the chat history. Done
+    // before the placeholders are filled, so the [[blocks]] template the preset
+    // carries is never touched — only the replies already in the chat.
+    if (localProfile.hideBlocksFromAI !== false) {
+        const hidden = hideBlocksInMessages(messages, meguminAllBlockTags());
+        if (hidden) console.debug(`[${extensionName}] Hid the blocks in ${hidden} earlier repl${hidden === 1 ? "y" : "ies"} from the model.`);
+    }
+
     let replacementsMade = 0;
+    // A preset message made only of slots (V11's Content message, plan 017)
+    // can come out empty. It is dropped below rather than sent as nothing.
+    const emptied = new Set();
     for (const msg of messages) {
         if (msg.content && typeof msg.content === 'string') {
+            const heldSlot = msg.role === "system" && /\[\[[^\]\n]+\]\]/.test(msg.content);
             Object.entries(dict).forEach(([trigger, replacement]) => {
                 if (msg.content.includes(trigger)) {
                     const processed = typeof substituteParams === 'function' ? substituteParams(replacement) : replacement;
@@ -352,7 +453,16 @@ export async function handlePromptInjection(data, type) {
 
             // Final Sweep: Collapse 3 or more blank lines into a standard double line break
             msg.content = msg.content.replace(/(?:\r?\n[ \t]*){3,}/g, '\n\n');
+            if (heldSlot && msg.content.trim() === "") emptied.add(msg);
         }
+    }
+    for (let i = messages.length - 1; i >= 0; i--) {
+        if (emptied.has(messages[i])) messages.splice(i, 1);
+    }
+
+    // Thinking Cap: its rules again as the last thing the model reads.
+    if (addThinkingNudge(messages, localProfile.model)) {
+        console.debug(`[${extensionName}] Added the Thinking Cap's rules at the end of the prompt.`);
     }
 
     // --- INJECT NPC PORTRAITS AS MULTIMODAL IMAGES ---

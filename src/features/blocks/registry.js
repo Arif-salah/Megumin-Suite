@@ -12,6 +12,15 @@
 
 import { localProfile } from "../../core/state.js";
 import { getSidePanelSettings } from "../../sidepanel/panel.js";
+import { worldBlockRequest, blockViaChomusuke, notebookBlockRequest } from "../../state/index.js";
+import { NOTEBOOK_TAGS } from "../../state/modules/notebook/parse.js";
+import {
+    BLOCKS_HEAD_SPLIT, wrapBlockRules, shortRulesHeading, bondsRulesSplit, sheetRulesSplit,
+    CHATTER_RULES, CHATTER_SKELETON, CHOICES_RULES, TRACKER_RULES, TRACKER_SKELETON,
+    NEW_NPC_SLOT, NPC_UPDATE_SLOT, sameText,
+} from "../../prompts/v11Rules.js";
+import { blocks as BUILTIN_BLOCKS } from "../../../data/blocks.js";
+import { storyPlanPrompts } from "../../prompts/storyPlan.js";
 
 // -------------------------------------------------------------
 // BLOCK REGISTRY — one definition per block the <Blocks> envelope can carry
@@ -69,7 +78,8 @@ export const MEGUMIN_BLOCK_REGISTRY = [
         // The one block the reader acts on rather than reads, so it opens first
         // and sits at the front of the strip unless they move it.
         preferFirst: true,
-        source: "[[cyoa]]", legacyIds: ["cyoa"]
+        source: "[[cyoa]]", legacyIds: ["cyoa"],
+        buildSplit: body => splitIfBuiltin(body, "cyoa", { rules: CHOICES_RULES, body })
     },
     {
         id: "world", tag: "World_State", label: "World State",
@@ -79,11 +89,20 @@ export const MEGUMIN_BLOCK_REGISTRY = [
         source: "[[infoblock]]", legacyIds: ["info"]
     },
     {
+        id: "worldUpdate", tag: "World_Update", label: "World Update",
+        desc: "Shows physical world state updates (location, clothing, time, posture) when they change.",
+        emoji: "📍", icon: "fa-location-dot", color: "#f59e0b",
+        visibility: "open", builtin: true, system: true,
+        // Handled dynamically inside buildBlocksEnvelope when 'world' is active
+        requires: () => false
+    },
+    {
         id: "chatter", tag: "NPC_Inner_Chatter", label: "NPC Inner Chatter",
         desc: "Reveal NPC private thoughts the PC never hears — crushes, resentment, scheming, anxiety. This feeds future NPC behavior.",
         emoji: "💭", icon: "fa-comment-dots", color: "#a855f7",
         visibility: "open", builtin: true,
-        source: "[[npc_inner_chatter]]", legacyIds: ["npc_inner_chatter", "npc_inner_chatter_v2"]
+        source: "[[npc_inner_chatter]]", legacyIds: ["npc_inner_chatter", "npc_inner_chatter_v2"],
+        buildSplit: body => splitIfBuiltin(body, "npc_inner_chatter", { rules: CHATTER_RULES, body: CHATTER_SKELETON })
     },
     {
         id: "bonds", tag: "Bonds", label: "Bonds",
@@ -91,13 +110,17 @@ export const MEGUMIN_BLOCK_REGISTRY = [
         visibility: "open", builtin: true,
         // Generated from the field list rather than read from a dict tag, so
         // adding a field changes what the model is asked for.
-        build: () => meguminBuildBondsTemplate()
+        build: () => meguminBuildBondsTemplate(),
+        // Plan 018: the V11 preset sends these rules up top and only the line
+        // to fill in the skeleton.
+        buildSplit: () => meguminBuildBondsSplit()
     },
     {
         id: "sheet", tag: "Character_Sheet", label: "Character Sheet",
         emoji: "🎒", icon: "fa-shield-halved", color: "#38bdf8",
         visibility: "open", builtin: true,
-        build: () => meguminBuildSheetTemplate()
+        build: () => meguminBuildSheetTemplate(),
+        buildSplit: () => meguminBuildSheetSplit()
     },
     {
         id: "newNpc", tag: "New_NPC", label: "New NPC Dossier",
@@ -112,6 +135,7 @@ export const MEGUMIN_BLOCK_REGISTRY = [
         // described one in prose was the odd one out, and the model had to infer
         // the tag it was supposed to open from a mention of it mid-sentence.
         slot: `<New_NPC name="[Full Name]">\n[The full dossier goes here when this response introduces an NPC that earns one — follow the NPC DOSSIER rules above. Omit this whole tag otherwise.]\n</New_NPC>`,
+        splitSlot: NEW_NPC_SLOT,
         requires: p => Boolean(p.npcBank && p.npcBank.enabled),
         // Gated on [[npc_dossier2]] rather than [[npc_dossier]]. The latter now
         // also carries the UPDATE rules, which are injected whenever the bank has
@@ -132,6 +156,7 @@ export const MEGUMIN_BLOCK_REGISTRY = [
         // being on — there is nothing to update in an empty bank, and asking for
         // updates to nobody is tokens spent on a block that can never be filled.
         slot: `<NPC_Update name="[Exact name as it appears in the NPC bank]">\n[The changed lines go here when this response changed something already on file — follow the NPC UPDATES rules above. Omit this whole tag otherwise.]\n</NPC_Update>`,
+        splitSlot: NPC_UPDATE_SLOT,
         requires: p => Boolean(p.npcBank && p.npcBank.enabled && (p.npcBank.npcs || []).length > 0),
         slotRequires: dict => Boolean(String(dict["[[npc_updates]]"] || "").trim())
     },
@@ -140,6 +165,8 @@ export const MEGUMIN_BLOCK_REGISTRY = [
         emoji: "🎬", icon: "fa-map", color: "#f43f5e",
         visibility: "open", builtin: true, system: true,
         source: "[[storytracker]]",
+        buildSplit: body => sameText(body, normalizeBlockBody(storyPlanPrompts.trackerTemplate, "Story_Tracker"))
+            ? { rules: TRACKER_RULES, body: TRACKER_SKELETON } : null,
         requires: p => Boolean(p.storyPlan && p.storyPlan.enabled)
     }
 ];
@@ -164,6 +191,15 @@ export function normalizeBlockBody(content, tag) {
         out = out.replace(new RegExp(`<\\/?${tag}\\b[^>]*>`, "gi"), "");
     }
     return out.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+// Plan 018: a block whose text is still the built-in one is split for the V11
+// preset (rules up top, lines to fill in below). A text you changed yourself is
+// sent as you wrote it, in the skeleton.
+function splitIfBuiltin(body, builtinId, split) {
+    const def = BUILTIN_BLOCKS.find(x => x.id === builtinId);
+    const tag = { cyoa: "CYOA", npc_inner_chatter: "NPC_Inner_Chatter" }[builtinId];
+    return def && sameText(body, normalizeBlockBody(def.content, tag)) ? split : null;
 }
 
 // The blocks that are actually going to be emitted this turn, in order: in the
@@ -192,11 +228,40 @@ export function meguminActiveBlocks() {
 // The instruction is a literal skeleton rather than a description of one. Models
 // follow a structure they can see far more reliably than a structure they have to
 // infer from prose, and the templates were already fill-in-the-blank.
-export function buildBlocksEnvelope(dict) {
+// A block's template as the model is asked for it (the story model in the
+// envelope, or Chomusuke when it writes the block). Any per-block header line
+// comes off first: the envelope carries one of its own, above everything.
+// Three ways a body arrives: a dict tag the rest of the pipeline already
+// produced (so engine overrides and custom prompts still apply), a template
+// generated from a field list, or a custom block's own text.
+export function meguminBlockTemplateBody(b, dict) {
+    let raw;
+    if (typeof b.build === "function") raw = b.build();
+    else if (b.source) raw = (dict && dict[b.source]) || "";
+    else raw = b.content || "";
+    return normalizeBlockBody(
+        String(raw).replace(/^#{1,3}\s*At the end of your response[^\n]*\n?/i, ""),
+        b.tag
+    );
+}
+
+// The envelope in its two halves: the rules (World State, Notebook) and the
+// skeleton's parts. Read once per build: the V11 preset sends the rules up top
+// and the skeleton in <turn_notes> (plan 018), older presets get both together.
+export function blocksEnvelopeParts(dict) {
     const active = meguminActiveBlocks();
-    if (!active.length) return "";
+    // Plan 010: the Author's Notebook is not a block in the stack; it rides in
+    // the envelope whenever it is on, even with no other block.
+    let notebook = null;
+    try { notebook = notebookBlockRequest(); } catch (e) { console.warn("[Megumin Suite] Notebook: could not build its request.", e); }
+    if (!active.length && !notebook) return { rules: [], parts: [], splitRules: [], splitParts: [] };
 
     const parts = [];
+    const rules = [];   // per-block rules, written above <Blocks>
+    // Plan 018: the V11 preset's copy. A block with `buildSplit` sends its rules
+    // up top and only its lines to fill in the skeleton; the rest are the same.
+    const splitParts = [];
+    const splitRules = [];
     active.forEach(b => {
         // A lead block is written before the prose, so it is deliberately not in
         // the envelope at all — the envelope is the last thing in the reply, and
@@ -209,35 +274,86 @@ export function buildBlocksEnvelope(dict) {
         if (b.slot) {
             if (typeof b.slotRequires === "function" && !b.slotRequires(dict)) return;
             parts.push(b.slot);
+            splitParts.push(b.splitSlot || b.slot);
             return;
         }
 
-        // Any per-block header line comes off first: the envelope carries one of
-        // its own, above everything.
-        // Three ways a body arrives: a dict tag the rest of the pipeline already
-        // produced (so engine overrides and custom prompts still apply), a
-        // template generated from a field list, or a custom block's own text.
-        let raw;
-        if (typeof b.build === "function") raw = b.build();
-        else if (b.source) raw = dict[b.source] || "";
-        else raw = b.content || "";
-        const body = normalizeBlockBody(
-            String(raw).replace(/^#{1,3}\s*At the end of your response[^\n]*\n?/i, ""),
-            b.tag
-        );
+        // World State is owned by the state store: it decides between the first
+        // full snapshot and a short update, and whether the main model is asked
+        // at all (side-model and manual modes leave it out). Its rules sit above
+        // <Blocks> so the template itself stays small enough not to be echoed.
+        if (b.id === "world") {
+            const req = worldBlockRequest();
+            if (!req) return;
+            rules.push(req.rules);
+            parts.push(req.template);
+            splitRules.push(shortRulesHeading(req.rules));
+            splitParts.push(req.template);
+            return;
+        }
+
+        // Plan 009: Chomusuke writes this one after the reply.
+        if (blockViaChomusuke(b.id)) return;
+
+        const body = meguminBlockTemplateBody(b, dict);
         if (!body) return;
 
         parts.push(`<${b.tag}>\n${body}\n</${b.tag}>`);
+
+        const split = typeof b.buildSplit === "function" ? b.buildSplit(body) : null;
+        if (split && split.body) {
+            if (split.rules) splitRules.push(split.rules);
+            splitParts.push(`<${b.tag}>\n${split.body}\n</${b.tag}>`);
+        } else {
+            splitParts.push(`<${b.tag}>\n${body}\n</${b.tag}>`);
+        }
     });
 
-    if (!parts.length) return "";
+    if (notebook) {
+        rules.push(notebook.rules);
+        parts.push(notebook.template);
+        splitRules.push(shortRulesHeading(notebook.rules));
+        // The form is up top, in <block_rules>, far from the skeleton.
+        splitParts.push(notebook.template.replace("in the form above", "in the form in <block_rules>"));
+    }
 
+    // No skeleton, no rules: rules for blocks that aren't asked for mean nothing.
+    return parts.length ? { rules, parts, splitRules, splitParts } : { rules: [], parts: [], splitRules: [], splitParts: [] };
+}
+
+// The rules come FIRST and the "output" line sits right above the skeleton.
+// Placed between the two, the rules read as part of what to write: the model
+// echoed them into its reply. They are headings, never tags, for the same reason.
+export function buildBlocksEnvelope(env) {
+    if (!env.parts.length) return "";
+    const rulesText = env.rules.length
+        ? `These rules say how to fill the blocks below. Follow them; never write them out.\n\n${env.rules.join("\n\n")}\n\n`
+        : "";
+    return `${rulesText}${blocksSkeleton(env)}`;
+}
+
+/** [[block_rules]] (plan 018): the rules alone, for the V11 preset's top part. */
+export function blockRulesText(env) {
+    const rules = env.splitRules || [];
+    if (!(env.splitParts || []).length || !rules.length) return "";
+    return wrapBlockRules(rules);
+}
+
+/** The V11 preset's skeleton: V11's opening and only the lines to fill in. */
+export function blocksSkeletonSplit(env) {
+    const parts = env.splitParts || [];
+    if (!parts.length) return "";
+    return `${BLOCKS_HEAD_SPLIT}\n\n<Blocks>\n${parts.join("\n")}\n</Blocks>`;
+}
+
+/** The output line and the <Blocks> skeleton, without the rules. */
+export function blocksSkeleton(env) {
+    if (!env.parts.length) return "";
     const header = [
         "## At the end of your response, output exactly one <Blocks> section.",
-        "Put every block inside it, in this order, each in its own tag. Do not add tags that are not listed. Do not nest blocks inside each other. Close every tag you open. Never wrap a block in <details> or <summary> — the interface draws the header and the fold itself."
+        "Put every block inside it, in this order, each in its own tag. A block whose rules say to leave it out this turn is left out. Do not add tags that are not listed. Do not nest blocks inside each other. Close every tag you open. Never wrap a block in <details> or <summary>; write each block as its plain tag."
     ].join("\n");
-
-    return `${header}\n\n<Blocks>\n${parts.join("\n")}\n</Blocks>`;
+    return `${header}\n\n<Blocks>\n${env.parts.join("\n")}\n</Blocks>`;
 }
 
 //
@@ -331,8 +447,12 @@ export function meguminStatRules(fields, subject, opts = {}) {
     const meters = fields.filter(f => f.type === "meter");
     const seeds = tracked.map(f => `${f.label} ${f.start !== undefined ? f.start : 0}`).join(", ");
 
+    // Plan 008: the values on file reach the model in <Current_Info>, not
+    // through its own old blocks (which are hidden from it), so that is where
+    // it is told to start from.
+    const notes = opts.notesTag || `${subject}_Now`;
     const lines = [
-        `- Carry every number forward from the previous ${subject} block. Never reset one, and never invent a value that already exists.`,
+        `- Start every number from <${notes}> in <Current_Info>. Never reset one, and never invent a value that is already there.`,
         `- A number moves only when something in THIS scene moved it. Write the change and the reason in brackets, e.g. (-6 he apologised and she heard pity). When nothing moved it, write (=).`
     ];
     // The cap is for meters only. A counted field like Gold legitimately jumps by
@@ -341,7 +461,7 @@ export function meguminStatRules(fields, subject, opts = {}) {
     if (meters.length) {
         lines.push(`- ${meters.map(f => f.label).join(", ")} move at most 10 in one reply unless the scene plainly earns more.`);
     }
-    lines.push(`- Starting values when there is no previous one${opts.perSubject ? " for that person" : ""}: ${seeds}.`);
+    lines.push(`- Starting values when <${notes}> has none${opts.perSubject ? " for that person" : ""}: ${seeds}.`);
     return lines.join("\n");
 }
 
@@ -352,11 +472,30 @@ export function meguminBuildBondsTemplate() {
     const line = fields.map(meguminStatFieldSpec).join(" | ");
     return [
         "[One line per named NPC present in the scene, plus any NPC whose numbers changed this scene. Nobody else.",
-        meguminStatRules(fields, "Bonds", { perSubject: true }),
+        meguminStatRules(fields, "Bonds", { perSubject: true, notesTag: "Bonds_Now" }),
         "- These are feelings, not bodies. Do not describe clothing, posture or location here.]",
         "",
         `[NPC Name]: ${line}`
     ].filter(Boolean).join("\n");
+}
+
+// The same block split for the V11 preset (plan 018): the rules go up top, the
+// skeleton keeps only the line to fill in.
+export function meguminBuildBondsSplit() {
+    const fields = meguminStatFields("bonds");
+    if (!fields.length) return null;
+    return {
+        rules: bondsRulesSplit(fields),
+        body: `[NPC Name]: ${fields.map(meguminStatFieldSpec).join(" | ")}`
+    };
+}
+
+export function meguminBuildSheetSplit() {
+    const fields = meguminStatFields("sheet");
+    if (!fields.length) return null;
+    const inline = fields.filter(f => !f.ownLine).map(meguminStatFieldSpec).join(" | ");
+    const own = fields.filter(f => f.ownLine).map(meguminStatFieldSpec);
+    return { rules: sheetRulesSplit(fields), body: [inline, ...own].filter(Boolean).join("\n") };
 }
 
 // The Character Sheet template: {{user}} only, so nothing repeats.
@@ -367,7 +506,7 @@ export function meguminBuildSheetTemplate() {
     const own = fields.filter(f => f.ownLine).map(meguminStatFieldSpec);
     return [
         "[{{user}}'s sheet.",
-        meguminStatRules(fields, "Character Sheet"),
+        meguminStatRules(fields, "Character Sheet", { notesTag: "Character_Sheet_Now" }),
         "- Inventory and skills change only when the story changes them. Do not restock or re-equip on your own.]",
         "",
         inline,
@@ -387,7 +526,7 @@ export function meguminBlockById(id) {
 // block that silently leaks, which is why it is derived rather than typed out.
 export function meguminAllBlockTags() {
     const custom = (localProfile && localProfile.blockStack && localProfile.blockStack.custom) || [];
-    const tags = [...MEGUMIN_BLOCK_REGISTRY.map(b => b.tag), ...custom.map(b => b.tag)];
+    const tags = [...MEGUMIN_BLOCK_REGISTRY.map(b => b.tag), ...custom.map(b => b.tag), ...NOTEBOOK_TAGS];
     // Story_Tracker is stripped explicitly by the cleaner before this list is
     // used, and stripping it twice is harmless, but a duplicate here would build
     // the same RegExp twice on every cleaned message.
@@ -406,7 +545,8 @@ export const BLOCK_VISIBILITY_CHOICES = [
 // silently instead of failing loudly.
 export const RESERVED_BLOCK_TAGS = [
     "blocks", "details", "summary", "think", "thinking", "gametxt", "updatevariable",
-    "combat_log", "location", "options", "disclaimer", "div", "span", "img", "p", "br"
+    "combat_log", "location", "options", "disclaimer", "div", "span", "img", "p", "br",
+    "notebook", "notebook_update"
 ];
 
 export function blockTagFromName(name) {

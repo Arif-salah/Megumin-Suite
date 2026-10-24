@@ -10,6 +10,13 @@ import { saveProfileToMemory } from "../../core/profile.js";
 import { fireRefreshHook, REFRESH } from "../../core/refreshHooks.js";
 import { hardcodedLogic } from "../../../data/database.js";
 
+// The dock shows the Persona tab only when the preset uses it. Modern presets
+// (V8 and later) lock the tab to a notice and nothing else, so it is hidden.
+export function personaTabInUse() {
+    const engine = [...hardcodedLogic.modes, ...(extension_settings[extensionName].customModes || [])].find(m => m.id === localProfile.mode);
+    return !isModernEngine(engine);
+}
+
 export function renderPersonality(c) {
     const isV6DreamTeam = localProfile.mode.includes("v6-dream-team");
     const activeEngineForPersona = [...hardcodedLogic.modes, ...(extension_settings[extensionName].customModes || [])].find(m => m.id === localProfile.mode);

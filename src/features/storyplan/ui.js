@@ -13,7 +13,7 @@ import { DEFAULT_PROMPTS } from "../../prompts/index.js";
 import { renderPromptEditor } from "../../ui/promptEditor.js";
 import { cleanAIOutput, getChatForStoryDirector } from "../../engine/chatText.js";
 import { escapeHtmlAttr } from "../../utils/html.js";
-import { useMeguminEngine } from "../../engine/tasks.js";
+import { runWithChomusuke } from "../../engine/tasks.js";
 
 // -------------------------------------------------------------
 
@@ -250,11 +250,10 @@ export function renderStoryPlanner(c) {
             <div class="mtab-panel">
                 <div class="mtab-panel-title gold"><i class="fa-solid fa-gears"></i> Engine Settings</div>
                 <div class="mtab-setting-row">
-                    <div class="set-info"><div class="set-label">Generation Backend</div></div>
-                    <select id="sd_backend" class="ps-modern-input" style="width: 220px; cursor: pointer;">
-                        <option value="direct" ${sp.backend === 'direct' ? 'selected' : ''}>Direct API Call (Fast)</option>
-                        <option value="preset" ${sp.backend === 'preset' ? 'selected' : ''}>Megumin Engine Preset</option>
-                    </select>
+                    <div class="set-info">
+                        <div class="set-label"><i class="fa-solid fa-cat" style="color: #f43f5e; margin-right: 6px;"></i> Background Worker</div>
+                        <div class="set-desc">Managed by the <b>Chomusuke</b> tab. Configure Chomusuke to offload story directive evolution to a dedicated worker LLM.</div>
+                    </div>
                 </div>
                 <div class="mtab-setting-row">
                     <div class="set-info">
@@ -407,9 +406,6 @@ export function renderStoryPlanner(c) {
     // Current Plan textarea
     $("#sd_current_plan").on("input", e => { sp.currentPlan = $(e.target).val(); sp.planMessageIndex = (getContext().chat?.length || 1) - 1; saveProfileDebounced(); });
 
-    // Backend
-    $("#sd_backend").on("change", e => { sp.backend = $(e.target).val(); saveProfileToMemory(); });
-
     // Context Limit
     $("#sd_context_limit").on("change", e => { sp.contextLimit = parseInt($(e.target).val(), 10); saveProfileToMemory(); });
 
@@ -444,12 +440,7 @@ export async function handleDirectiveGeneration(sp, btn, isEvolve) {
     btn.prop("disabled", true).html(`<i class="fa-solid fa-spinner fa-spin"></i> ${isEvolve ? 'Evolving...' : 'Directing...'}`);
 
     try {
-        let output;
-        if (!sp.backend || sp.backend === "direct") {
-            output = await generateStoryPlanLogic(chatText);
-        } else {
-            await useMeguminEngine(async () => { output = await generateStoryPlanLogic(chatText); });
-        }
+        let output = await runWithChomusuke("storyPlan", () => generateStoryPlanLogic(chatText));
 
         if (output) {
             // Writing now would put this chat's directive into the old one, and
@@ -483,7 +474,7 @@ export async function handleDirectiveGeneration(sp, btn, isEvolve) {
 export async function generateStoryPlanLogic(chatText) {
     setActiveStoryPlanRequest(chatText);
     try {
-        let rawOutput = await generateQuietPrompt({ prompt: "___PS_STORY_PLAN___" });
+        let rawOutput = await generateQuietPrompt({ prompt: "___PS_STORY_PLAN___", quietPrompt: "___PS_STORY_PLAN___" });
         return rawOutput;
     } finally {
         setActiveStoryPlanRequest(null);

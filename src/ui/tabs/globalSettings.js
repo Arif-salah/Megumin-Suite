@@ -1,5 +1,5 @@
 // ────────────────────────────────────────────────────────────────────────────
-// Global Settings — extension preferences, community links and about.
+// Settings — extension preferences, community links and about.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { extension_settings, saveSettingsDebounced } from "../../st.js";
@@ -8,10 +8,13 @@ import { localProfile } from "../../core/state.js";
 import { initProfile, saveProfileToMemory } from "../../core/profile.js";
 import { flushProfileSettingsToLoadedKey, _saveProfileDebouncedInner } from "../../core/profile.js";
 import { cancelDebounce } from "../../st.js";
+import { suiteEnabled, setSuiteEnabled } from "../../core/power.js";
+import { BG_JOBS, bgJobWanted } from "../../engine/bgPromptsCore.js";
+import { openBackgroundLog } from "../../engine/bgPrompts.js";
 
 // The version on the about card. One place, so it cannot fall out of step with
 // itself the way "v9" did once V10 shipped.
-const SUITE_VERSION = "V10";
+const SUITE_VERSION = "V11";
 
 // Where the "send Kazuma something" button points. Tally rather than Google Forms
 // for one reason: Google makes anyone uploading a file sign in and records their
@@ -54,7 +57,7 @@ export function renderGlobalSettings(c) {
                     <i class="fa-solid fa-gear"></i>
                 </div>
                 <div>
-                    <h2>Global Settings</h2>
+                    <h2>Settings</h2>
                     <p>Preferences that apply to every character and every chat.</p>
                 </div>
             </div>
@@ -68,13 +71,47 @@ export function renderGlobalSettings(c) {
 
     // ── BEHAVIOUR ───────────────────────────────────────────────────────────
     $content.append(`<div class="wstyle-section-head blue"><i class="fa-solid fa-sliders"></i> Behaviour</div>`);
+    const suiteOn = suiteEnabled();
+    $content.append(`
+        <div class="mtab-toggle-row ${suiteOn ? 'active' : ''}" id="gs_toggle_suite" style="cursor: pointer; ${suiteOn ? 'border-color: #10b981;' : ''}">
+            <div class="toggle-info">
+                <div class="toggle-label"><i class="fa-solid fa-power-off" style="color: #10b981;"></i> Megumin Suite On</div>
+                <div class="toggle-desc">The master switch, also on the top bar. <b>Off:</b> prompts go out exactly as SillyTavern builds them and nothing runs in the background after a reply. Cards and images already in the chat still show, and the buttons in this window still work.</div>
+            </div>
+            <div class="ps-switch" style="${suiteOn ? 'background: #10b981;' : ''}"></div>
+        </div>
+    `);
     $content.append(`
         <div class="mtab-toggle-row ${gs.promptPreview ? 'active' : ''}" id="gs_toggle_prompt_preview" style="cursor: pointer;">
             <div class="toggle-info">
-                <div class="toggle-label"><i class="fa-solid fa-magnifying-glass" style="color: var(--gold);"></i> Prompt Payload Preview</div>
-                <div class="toggle-desc">Shows the finished prompt in a popup before it is sent, so you can read exactly what the AI receives. Cancelling the popup stops the generation.</div>
+                <div class="toggle-label"><i class="fa-solid fa-magnifying-glass" style="color: var(--gold);"></i> Preview story prompts</div>
+                <div class="toggle-desc">Shows the finished story prompt in a popup before it is sent, so you can read exactly what the AI receives. Cancelling the popup stops the reply.</div>
             </div>
             <div class="ps-switch" style="${gs.promptPreview ? 'background: var(--gold);' : ''}"></div>
+        </div>
+    `);
+    // Background prompts (plan 013): the switch, which jobs, and the log of the last 10.
+    const bgJobs = gs.bgPreviewJobs || {};
+    $content.append(`
+        <div class="mtab-toggle-row ${gs.bgPreview ? 'active' : ''}" id="gs_toggle_bg_preview" style="cursor: pointer;">
+            <div class="toggle-info">
+                <div class="toggle-label"><i class="fa-solid fa-eye" style="color: var(--gold);"></i> Preview background prompts</div>
+                <div class="toggle-desc">Shows a background job's prompt (Memory, NPC Bank, World State, images…) in a popup before it is sent. You can change the text, or cancel that one job; the story carries on.</div>
+            </div>
+            <div class="ps-switch" style="${gs.bgPreview ? 'background: var(--gold);' : ''}"></div>
+        </div>
+        <div class="gs-bgjobs" id="gs_bg_jobs" style="display: ${gs.bgPreview ? 'flex' : 'none'};">
+            <div class="gs-bgjobs-title">Show the prompts of:</div>
+            ${BG_JOBS.map(j => `<label class="gs-bgjob"><input type="checkbox" data-job="${j.id}" ${bgJobWanted(bgJobs, j.id) ? 'checked' : ''} /> ${j.label}</label>`).join("")}
+        </div>
+        <div class="mtab-panel" style="margin: 0; padding: 12px 16px;">
+            <div class="mtab-setting-row" style="padding: 0; border: none;">
+                <div class="set-info">
+                    <div class="set-label"><i class="fa-solid fa-clock-rotate-left" style="color: var(--gold);"></i> Last background prompts</div>
+                    <div class="set-desc">The last 10 background prompts that were sent, for every chat and character. Kept in this browser, not in your settings file.</div>
+                </div>
+                <button type="button" id="gs_bg_log" class="menu_button" style="width: auto; margin: 0; white-space: nowrap;"><i class="fa-solid fa-list"></i> Show them</button>
+            </div>
         </div>
     `);
     $content.append(`
@@ -84,6 +121,27 @@ export function renderGlobalSettings(c) {
                 <div class="toggle-desc">Puts an opening &lt;think&gt; into the AI's mouth for background jobs — Image Gen, the Ban List, the Story Director, NPC scans. <b>Off by default:</b> Claude and several other APIs reject a prefill outright. Turn it on only if yours accepts one.</div>
             </div>
             <div class="ps-switch" style="${gs.enableUtilityPrefill ? 'background: #10b981;' : ''}"></div>
+        </div>
+    `);
+
+    $content.append(`
+        <div class="mtab-toggle-row ${gs.chomusukeSwitchConnection ? 'active' : ''}" id="gs_toggle_chomusuke_switch" style="cursor: pointer; ${gs.chomusukeSwitchConnection ? 'border-color: #38bdf8;' : ''}">
+            <div class="toggle-info">
+                <div class="toggle-label"><i class="fa-solid fa-right-left" style="color: #38bdf8;"></i> Switch my connection for each Chomusuke job</div>
+                <div class="toggle-desc">Chomusuke sends its jobs straight to its own connection, and your story connection never changes. Turn this on only if Chomusuke's jobs fail that way: SillyTavern then switches to Chomusuke's connection for each job and back, the way older versions did.</div>
+            </div>
+            <div class="ps-switch" style="${gs.chomusukeSwitchConnection ? 'background: #38bdf8;' : ''}"></div>
+        </div>
+    `);
+
+    if (gs.loreInTasks === undefined) gs.loreInTasks = true;
+    $content.append(`
+        <div class="mtab-toggle-row ${gs.loreInTasks ? 'active' : ''}" id="gs_toggle_lore_tasks" style="cursor: pointer; ${gs.loreInTasks ? 'border-color: #a855f7;' : ''}">
+            <div class="toggle-info">
+                <div class="toggle-label"><i class="fa-solid fa-book-atlas" style="color: #a855f7;"></i> Lorebooks in Background Jobs</div>
+                <div class="toggle-desc">Background jobs build their own prompt, so your lorebook entries don't reach them on their own. <b>On:</b> image looks, NPC portraits and NPC refreshes get the entries that name that character; the Story Director and NPC scans get the entries your story has active right now. Your story replies use the lorebook as usual either way.</div>
+            </div>
+            <div class="ps-switch" style="${gs.loreInTasks ? 'background: #a855f7;' : ''}"></div>
         </div>
     `);
 
@@ -164,8 +222,18 @@ export function renderGlobalSettings(c) {
             $(this).find(".ps-switch").css("background", gs[key] ? colour : "");
         });
     };
+    $content.find("#gs_toggle_suite").on("click", () => setSuiteEnabled(!suiteEnabled()));
     wireToggle("#gs_toggle_prompt_preview", "promptPreview", "var(--gold)");
+    wireToggle("#gs_toggle_bg_preview", "bgPreview", "var(--gold)");
+    $content.find("#gs_toggle_bg_preview").on("click", () => $content.find("#gs_bg_jobs").css("display", gs.bgPreview ? "flex" : "none"));
+    $content.find("#gs_bg_jobs input[data-job]").on("change", function () {
+        gs.bgPreviewJobs = { ...(gs.bgPreviewJobs || {}), [$(this).data("job")]: this.checked };
+        saveSettingsDebounced();
+    });
+    $content.find("#gs_bg_log").on("click", () => openBackgroundLog());
     wireToggle("#gs_toggle_utility_prefill", "enableUtilityPrefill", "#10b981");
+    wireToggle("#gs_toggle_lore_tasks", "loreInTasks", "#a855f7");
+    wireToggle("#gs_toggle_chomusuke_switch", "chomusukeSwitchConnection", "#38bdf8");
 
     $content.find("#gs_save_mode").on("change", function () {
         // getCharacterKey() reads saveMode, so changing it moves where a save lands. Get any

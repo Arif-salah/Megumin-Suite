@@ -17,6 +17,7 @@
 
 import { localProfile } from "../../core/state.js";
 import { escapeRegex } from "../../utils/regex.js";
+import { NPC_DOSSIER_RULES, npcPersistenceRuleSplit, npcUpdateRulesSplit } from "../../prompts/v11Rules.js";
 
 // ── Field types ─────────────────────────────────────────────────────────────
 //
@@ -439,4 +440,31 @@ export function npcBuildUpdateRules() {
     }
 
     return lines.join("\n");
+}
+
+// ── The V11 preset's versions (plan 018) ────────────────────────────────────
+// The same fields, in V11's style (prompts/v11Rules.js). Used only while the
+// dossier rules are the built-in ones.
+
+export function npcBuildDossierPromptSplit() {
+    const labels = npcBodyFields().filter(f => f.persistent && f.system !== "imageTags").map(f => f.label);
+    // The built-in Image Tags hint points at the old rules' key name.
+    const template = npcBuildDossierTemplate().replace("see image_tag_rule", "see Image Tags below");
+    return NPC_DOSSIER_RULES
+        .split("{{template}}").join(template)
+        .split("{{persistenceRule}}").join(npcPersistenceRuleSplit(labels))
+        .replace(/\n{3,}/g, "\n\n");
+}
+
+export function npcBuildUpdatePromptSplit() {
+    const updatable = npcUpdatableFields();
+    if (!updatable.length) return "";
+    const label = f => f.label;
+    return npcUpdateRulesSplit({
+        updatable: updatable.map(label),
+        single: updatable.filter(f => npcFieldOps(f).length === 1).map(label),
+        multi: updatable.filter(f => npcFieldOps(f).length > 1).map(label),
+        locked: npcBodyFields().filter(f => !f.updatable && f.system !== "imageTags").map(label),
+        template: npcBuildUpdateTemplate(),
+    });
 }

@@ -70,7 +70,7 @@ import {
     TAB_SYNC_KEYS, TABS_ALREADY_GLOBAL, meguminGlobalSyncMap, meguminIsTabSynced,
     applyTabKeysToAllProfiles, syncPromptsGlobally,
 } from "./src/core/sync.js";
-import { cleanLegacySettings, migrateRenamedTabs, migrateUtilityPrefillFlag } from "./src/core/migrations.js";
+import { cleanLegacySettings, migrateRenamedTabs, migrateUtilityPrefillFlag, dropLookResidue } from "./src/core/migrations.js";
 import { meguminCompactStoredPrompts } from "./src/prompts/storage.js";
 import {
     normalizeBlockBody,
@@ -85,8 +85,10 @@ import {
     STAT_FIELD_PACKS,
     STAT_FIELD_TYPES,
 } from "./src/features/blocks/registry.js";
-import { meguminCleanChatHistoryText, getChatForStoryDirector, getChatForNpcScan, escapeRegex } from "./src/engine/chatText.js";
-import { useMeguminEngine } from "./src/engine/tasks.js";
+import { meguminCleanChatHistoryText, getChatForStoryDirector, getChatForNpcScan, escapeRegex, cleanAIOutput } from "./src/engine/chatText.js";
+import { useMeguminEngine, runWithChomusuke, chomusukeSessionPromise, setReplyHeld, stopJobsForOtherChats } from "./src/engine/tasks.js";
+import { initChomusukeIndicator } from "./src/features/blocks/chomusukeIndicator.js";
+import { warnChomusuke, answerKind } from "./src/engine/chomusukeNotice.js";
 import { escapeHtmlAttr } from "./src/utils/html.js";
 import { downloadJsonFile } from "./src/utils/download.js";
 import { showKazumaProgress } from "./src/ui/progress.js";
@@ -99,8 +101,11 @@ import {
     flushProfileSettingsToLoadedKey,
     saveProfileDebounced,
     _saveProfileDebouncedInner,
+    pruneFutureData,
 } from "./src/core/profile.js";
 import { meguminSyncLegacyBlockIds } from "./src/features/blocks/registry.js";
+import { blocksReadForReply, NOT_A_REPLY as BLOCKS_NOT_A_REPLY } from "./src/features/blocks/worker.js";
+import { notebookReadForReply } from "./src/features/notebook/worker.js";
 import { buildConfigBlock } from "./src/features/storyconfig/config.js";
 import { renderStoryConfig } from "./src/features/storyconfig/ui.js";
 import { SD_GENRES, renderStoryPlanner, generateStoryPlanLogic } from "./src/features/storyplan/ui.js";
@@ -119,16 +124,22 @@ import { npcGeneratePfp } from "./src/features/npc/pfp.js";
 import { npcParseUpdateBlocks, npcApplyUpdates, npcUndoHistoryEntry } from "./src/features/npc/updates.js";
 import { renderNpcBank, renderNpcList } from "./src/features/npc/ui.js";
 import {
+    stateOnMessageReceived, stateOnSwiped, stateOnSwipeDeleted, stateOnEdited, stateOnDeleted, stateOnChatLoaded,
+    setWorldStateChangedHook,
+} from "./src/state/index.js";
+import {
     meguminDecorateMessageBody, meguminRefreshBlocksInChat, meguminScheduleBlocksRefresh,
 } from "./src/features/blocks/chat.js";
 import {
     renderImageGen, igFetchComfyLists, toggleQuickGenButton, igTestConnection,
     igPopulateWorkflows, igNewWorkflowClick, igDeleteWorkflowClick, igOpenWorkflowEditorClick,
     igManualGenerate, generateImagePromptText, addKazumaRetryButtons, kazumaRetrySweep,
-    igGenerateWithComfy,
+    igGenerateWithComfy, igAutoImageForReply, v2LooksForArrivals, prepareImagePrompt,
+    combinedTurnWanted, runCombinedTurn,
 } from "./src/features/imagegen/index.js";
 import { buildBaseDict } from "./src/engine/buildBaseDict.js";
 import { handlePromptInjection } from "./src/engine/injection.js";
+import { suiteEnabled, setSuiteEnabled, syncPowerUI } from "./src/core/power.js";
 import { updateLiveTokenCount } from "./src/core/tokens.js";
 import { initDraggableButton, updateCharacterDisplay, discoverDefaultImages } from "./src/ui/launcher.js";
 import { tabsUI, switchTab, updateGlobalSyncButton, toggleTabGlobalSync } from "./src/ui/tabs.js";
@@ -212,6 +223,12 @@ $("body").on("input", "#ps_main_current_rule", function () {
 // -------------------------------------------------------------
 
 
+// Master switch (top bar). The Global Settings row wires its own click.
+$("body").off("click", "#ps_btn_power").on("click", "#ps_btn_power", function (e) {
+    e.preventDefault();
+    setSuiteEnabled(!suiteEnabled());
+});
+
 // -------------------------------------------------------------
 // DEV MODE: VISUAL ENGINE BUILDER
 // -------------------------------------------------------------
@@ -238,10 +255,13 @@ jQuery(async () => {
         cleanLegacySettings();
         migrateRenamedTabs();
         migrateUtilityPrefillFlag();
+        dropLookResidue();
         initSidePanel({ profileGetter: () => localProfile });
+        initChomusukeIndicator();
         const h = await $.get(`${extensionFolderPath}/example.html`);
         $("body").append(h);
         initDraggableButton();
+        syncPowerUI();
         $("body").append('<div id="ps-global-tooltip"></div>');
         // Profile level badge styles
         $("head").append(`<style>
@@ -429,14 +449,127 @@ jQuery(async () => {
                 updateMemoryVisuals();
             });
             // Background Vectorization triggers for Semantic Mode
-            eventSource.on(event_types.USER_MESSAGE_RENDERED, memUpdateSemanticQueryDebounced);
-            eventSource.on(event_types.MESSAGE_EDITED, memUpdateSemanticQueryDebounced);
-            eventSource.on(event_types.CHAT_CHANGED, memUpdateSemanticQueryDebounced);
+            // (not while the suite is switched off: each one is a network call)
+            const memQueryIfOn = (...args) => { if (suiteEnabled()) memUpdateSemanticQueryDebounced(...args); };
+            eventSource.on(event_types.USER_MESSAGE_RENDERED, memQueryIfOn);
+            eventSource.on(event_types.MESSAGE_EDITED, memQueryIfOn);
+            eventSource.on(event_types.CHAT_CHANGED, memQueryIfOn);
             // Trigger visual update when user clicks "Show more messages"
             eventSource.on(event_types.MORE_MESSAGES_LOADED, updateMemoryVisuals);
+            // Prune future data and roll back ledger on message deletion
+            eventSource.on(event_types.MESSAGE_DELETED, () => {
+                pruneFutureData();
+                if (stateOnDeleted()) meguminScheduleBlocksRefresh();
+            });
+            // Handle swipe rewind & sync
+            // World State side-model reads land in the background; redraw the
+            // cards when one starts ("Reading…") and when it lands.
+            // …and a character who just arrived gets a look (Image Gen V2).
+            setWorldStateChangedHook(() => { meguminScheduleBlocksRefresh(); v2LooksForArrivals(); });
+            // Send guard: SillyTavern waits for this handler before it talks to
+            // the API. A reply sent while Chomusuke still reads the last reply
+            // (World State, Blocks, the Notebook) waits for it, so its Current
+            // Info is up to date; on the switching fallback, a reply sent while
+            // the worker profile is switched in waits for the main profile to
+            // return. Background (quiet) generations and token-count dry runs
+            // pass straight through; 30s cap so a stuck worker can never block
+            // the chat.
+            eventSource.on(event_types.GENERATION_STARTED, async (genType, _params, dryRun) => {
+                if (dryRun || genType === "quiet") return;
+                const session = chomusukeSessionPromise();
+                if (!session) return;
+                toastr.info("Waiting a moment for Chomusuke to finish reading the last reply…", "Megumin Suite", { timeOut: 3000 });
+                setReplyHeld(true);
+                try {
+                    const gaveUp = await Promise.race([
+                        session.then(() => false),
+                        new Promise(r => setTimeout(() => r(true), 30000))
+                    ]);
+                    if (gaveUp) console.warn("[Megumin-Suite] Send guard: Chomusuke still busy after 30s; sending anyway.");
+                } finally { setReplyHeld(false); }
+            });
+            eventSource.on(event_types.MESSAGE_SWIPED, (mesId) => {
+                if (stateOnSwiped(mesId)) meguminScheduleBlocksRefresh();
+            });
+            eventSource.on(event_types.MESSAGE_SWIPE_DELETED, (data) => {
+                if (stateOnSwipeDeleted(data)) meguminScheduleBlocksRefresh();
+            });
+            eventSource.on(event_types.MESSAGE_EDITED, (mesId) => {
+                if (stateOnEdited(mesId)) meguminScheduleBlocksRefresh();
+            });
+            // World State: stamp, reconcile and (once) import after the chat has
+            // loaded. Same deferral as initProfile, and dropped if the user has
+            // already moved on to another chat.
+            eventSource.on(event_types.CHAT_CHANGED, () => {
+                // Chomusuke's jobs for the chat you left: stopped, not run for nothing.
+                stopJobsForOtherChats();
+                const chatAtEvent = getContext().chatId;
+                setTimeout(() => {
+                    if (getContext().chatId !== chatAtEvent) return;
+                    if (stateOnChatLoaded()) meguminScheduleBlocksRefresh();
+                }, 250);
+            });
             // IMAGE GEN AUTO-GEN & SWIPE TRIGGERS
-            eventSource.on(event_types.MESSAGE_RECEIVED, async () => {
+            eventSource.on(event_types.MESSAGE_RECEIVED, async (receivedId, receivedType) => {
                 updateMemoryVisuals();
+                // Master switch off: nothing below runs (no reads, images, director, memory, NPC bank).
+                if (!suiteEnabled()) return;
+
+                // An empty reply (or one with only its thinking) has nothing for
+                // Chomusuke to read: no read, no blocks, no image for it.
+                const replyNow = (getContext().chat || [])[typeof receivedId === "number" ? receivedId : (getContext().chat || []).length - 1];
+                const emptyReply = Boolean(replyNow && !replyNow.is_user && !replyNow.is_system
+                    && !cleanAIOutput(String(replyNow.mes || "").replace(/<!--[\s\S]*?-->/g, "")).trim());
+
+                // --- WORLD STATE ---
+                // First, so everything below (image gen included) sees this
+                // reply's outfits.
+                // Chomusuke "Combine calls": on an image turn, one call reads World
+                // State AND writes the image prompt (no separate read below).
+                const combinedTurn = emptyReply ? null : combinedTurnWanted(receivedId, receivedType);
+                try {
+                    if (stateOnMessageReceived(receivedId, receivedType, { skipSideRead: emptyReply || Boolean(combinedTurn && combinedTurn.world) })) meguminScheduleBlocksRefresh();
+                    // Image Gen V2: a character who just arrived gets a look.
+                    v2LooksForArrivals();
+                } catch (e) {
+                    console.error("[Megumin-Suite] World State update failed", e);
+                }
+
+                // --- BLOCKS BY CHOMUSUKE (plan 009) ---
+                // Bonds, Sheet, Inner Chatter, CYOA the story model was not asked
+                // for: Chomusuke reads the reply and writes them. Queued after the
+                // World State read. Does nothing unless the Blocks route is on.
+                // (A combined call below does it instead when Combine calls is on.)
+                if (!emptyReply && !BLOCKS_NOT_A_REPLY.has(receivedType) && !(combinedTurn && combinedTurn.blocks)) {
+                    const chatNow = getContext().chat || [];
+                    const blocksIndex = typeof receivedId === "number" ? receivedId : chatNow.length - 1;
+                    blocksReadForReply(blocksIndex, { force: receivedType === "continue" })
+                        .catch(e => console.error("[Megumin-Suite] Blocks read failed", e));
+                }
+
+                // --- NOTEBOOK BY CHOMUSUKE (plan 010) ---
+                // Clues, who learned what, what came out. Does nothing unless the
+                // Notebook route is on and the notebook has live truths.
+                if (!emptyReply && !BLOCKS_NOT_A_REPLY.has(receivedType) && !(combinedTurn && combinedTurn.notebook)) {
+                    const chatNow = getContext().chat || [];
+                    const nbIndex = typeof receivedId === "number" ? receivedId : chatNow.length - 1;
+                    notebookReadForReply(nbIndex, { force: receivedType === "continue" })
+                        .catch(e => console.error("[Megumin-Suite] Notebook read failed", e));
+                }
+
+                // --- AUTOMATIC IMAGE BY CHOMUSUKE ---
+                // After World State, so its read is queued first and the image
+                // uses the newest outfits. Does nothing unless Chomusuke writes images.
+                if (!emptyReply) (combinedTurn
+                    ? runCombinedTurn(receivedId, receivedType, combinedTurn)
+                    : igAutoImageForReply(receivedId, receivedType, generateImagePromptText, prepareImagePrompt))
+                    .catch(e => console.error("[Megumin-Suite] Automatic image failed", e));
+                // A combined call without an image still leaves the reply's own
+                // automatic image (if Chomusuke does not write it) to its usual path.
+                if (combinedTurn && !combinedTurn.image) {
+                    igAutoImageForReply(receivedId, receivedType, generateImagePromptText, prepareImagePrompt)
+                        .catch(e => console.error("[Megumin-Suite] Automatic image failed", e));
+                }
 
                 // --- STORY DIRECTOR FEEDBACK & AUTO-EVOLVE ---
                 const sp = localProfile?.storyPlan;
@@ -507,7 +640,7 @@ jQuery(async () => {
                                     const chatText = getChatForStoryDirector();
                                     if (chatText.length < 100) return;
                                     try {
-                                        let output = sp.backend === "direct" ? await generateStoryPlanLogic(chatText) : await new Promise(r => useMeguminEngine(async () => r(await generateStoryPlanLogic(chatText))));
+                                        let output = await runWithChomusuke("storyPlan", () => generateStoryPlanLogic(chatText));
                                         if (meguminActiveDataIdentity() !== spIdentity) {
                                             console.debug(`[Megumin-Suite] Story Director auto-evolve declined: the chat changed while the directive was generating ("${spIdentity}" to "${meguminActiveDataIdentity()}"). The new directive was discarded, not applied.`);
                                             return;
@@ -522,8 +655,14 @@ jQuery(async () => {
                                                 $("#sd_btn_evolve").prop("disabled", false);
                                             }
                                             toastr.success("Narrative Directive Evolved silently!", "Story Director");
+                                        } else if (output !== null) {
+                                            // null: the worker failed and has said so already.
+                                            warnChomusuke(answerKind(output), ["storyPlan"]);
                                         }
-                                    } catch (e) { console.error("[Megumin Suite] Story Director auto-evolve failed", e); }
+                                    } catch (e) {
+                                        console.error("[Megumin Suite] Story Director auto-evolve failed", e);
+                                        warnChomusuke("failed", ["storyPlan"], { error: e });
+                                    }
                                 }, 2000); // Delay to let UI settle
                             }
                         }
@@ -709,6 +848,7 @@ jQuery(async () => {
                 }
             });
             const meguminSwipeHandler = async (data) => {
+                if (!suiteEnabled()) return; // switched off: SillyTavern handles the overswipe itself
                 const s = localProfile?.imageGen;
                 if (!s || !s.enabled) return;
 

@@ -15,13 +15,14 @@ import { fireRefreshHook, REFRESH } from "../../core/refreshHooks.js";
 import { setActiveNpcPfpRequest } from "../../core/activeRequests.js";
 import { showKazumaProgress } from "../../ui/progress.js";
 import { npcBuildTextFromData } from "./data.js";
+import { comfyBase } from "../imagegen/comfyUrl.js";
 
 // Generate NPC portrait via ComfyUI — uses AI to generate the prompt from full NPC info
 
 export async function npcGeneratePfp(npcName) {
     const s = localProfile.imageGen;
     if (!s || !s.enabled || !s.currentWorkflowName) {
-        toastr.warning("Image Generation must be enabled and configured first.");
+        toastr.warning("Turn on Images and set up ComfyUI in the Images tab first.");
         return null;
     }
 
@@ -44,7 +45,7 @@ export async function npcGeneratePfp(npcName) {
     showKazumaProgress("AI is writing portrait prompt...");
 
     // Step 1: Ask the AI to generate an image prompt from the NPC dossier
-    setActiveNpcPfpRequest({ npcText, styleStr, perspStr, extraStr: s.promptExtra || "None" });
+    setActiveNpcPfpRequest({ npcName, npcText, styleStr, perspStr, extraStr: s.promptExtra || "None" });
 
     let promptText;
     try {
@@ -148,7 +149,7 @@ export async function npcGeneratePfp(npcName) {
     }
 
     try {
-        const res = await fetch(`${s.comfyUrl}/prompt`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: workflow }) });
+        const res = await fetch(`${comfyBase(s.comfyUrl)}/prompt`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: workflow }) });
         if (!res.ok) throw new Error("Failed");
         const data = await res.json();
 
@@ -156,7 +157,7 @@ export async function npcGeneratePfp(npcName) {
         return new Promise((resolve) => {
             const checkInterval = setInterval(async () => {
                 try {
-                    const h = await (await fetch(`${s.comfyUrl}/history/${data.prompt_id}`)).json();
+                    const h = await (await fetch(`${comfyBase(s.comfyUrl)}/history/${data.prompt_id}`)).json();
                     if (h[data.prompt_id]) {
                         clearInterval(checkInterval);
                         let finalImage = null;
@@ -165,7 +166,7 @@ export async function npcGeneratePfp(npcName) {
                             if (nodeOut.images && nodeOut.images.length > 0) { finalImage = nodeOut.images[0]; break; }
                         }
                         if (finalImage) {
-                            const imgUrl = `${s.comfyUrl}/view?filename=${finalImage.filename}&subfolder=${finalImage.subfolder}&type=${finalImage.type}`;
+                            const imgUrl = `${comfyBase(s.comfyUrl)}/view?filename=${finalImage.filename}&subfolder=${finalImage.subfolder}&type=${finalImage.type}`;
                             const response = await fetch(imgUrl); const blob = await response.blob();
                             const base64 = await new Promise((r) => { const reader = new FileReader(); reader.onloadend = () => r(reader.result); reader.readAsDataURL(blob); });
 

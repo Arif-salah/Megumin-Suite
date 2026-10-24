@@ -6,7 +6,7 @@
   "js": "index.js",
   "css": "style.css",
   "author": "KazumaONIISAN",
-  "version": "10.0",
+  "version": "11.0",
   "generate_interceptor": "megumin_memory_intercept",
   "homePage": "https://github.com/Arif-salah/Megumin-Suite"
 }
