@@ -17,6 +17,7 @@ import { saveBase64AsFile, cancelDebounce } from "../../../utils.js";
 import { humanizedDateTime } from "../../../RossAscends-mods.js";
 import { Popup, POPUP_TYPE } from "../../../popup.js";
 import { hardcodedLogic } from "./data/database.js";
+import { setEngineClonesReader } from "./data/slots.js";
 import { KAZUMA_PLACEHOLDERS, RESOLUTIONS } from "./data/image_data.js";
 
 import { extensionName, extensionFolderPath } from "./src/core/constants.js";
@@ -252,6 +253,7 @@ $("body").off("click", "#ps_btn_dev_mode").on("click", "#ps_btn_dev_mode", funct
 
 jQuery(async () => {
     try {
+        setEngineClonesReader(() => (extension_settings[extensionName] || {}).customModes || []);
         cleanLegacySettings();
         migrateRenamedTabs();
         migrateUtilityPrefillFlag();

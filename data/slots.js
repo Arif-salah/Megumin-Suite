@@ -80,18 +80,24 @@ const GATE = {
  * Look up an engine by id across the shipped list and the reader's own clones.
  *
  * Gates receive the profile, not the engine, so a gate that depends on which
- * engine is selected has to resolve it. extension_settings is read lazily off
- * globalThis rather than imported: data/ sits below src/ in the layering and
- * must not pull in core/state, and a missing store simply means "no clones".
+ * engine is selected has to resolve it. The clones come from a reader that
+ * index.js hands over at startup (setEngineClonesReader): data/ can't import
+ * extension_settings itself, since that would pull SillyTavern into the pure
+ * modules. SillyTavern never puts extension_settings on globalThis, so the old
+ * globalThis read always came back empty and clones were never found. No
+ * reader yet simply means "no clones".
  */
+let readEngineClones = () => [];
+export function setEngineClonesReader(fn) {
+    readEngineClones = typeof fn === "function" ? fn : () => [];
+}
+
 function meguminModeById(id) {
     if (!id) return null;
     const found = modes.find(m => m.id === id);
     if (found) return found;
     try {
-        const store = globalThis.extension_settings || {};
-        const bucket = store["Megumin-Suite"] || store["Megumin-Suite-Beta"] || {};
-        return (bucket.customModes || []).find(m => m.id === id) || null;
+        return (readEngineClones() || []).find(m => m.id === id) || null;
     } catch { return null; }
 }
 
