@@ -10,11 +10,13 @@ import { getContext, generateQuietPrompt, substituteParams, saveMetadataDebounce
 import { localProfile } from "../../../core/state.js";
 import { setActiveImageGenRequest } from "../../../core/activeRequests.js";
 import { meguminCleanChatHistoryText } from "../../../engine/chatText.js";
-import { getWorldState, worldHasState } from "../../../state/index.js";
+import { getWorldState, worldHasState, worldReadsSettled } from "../../../state/index.js";
+import { bgPreviewOpen } from "../../../engine/bgPrompts.js";
+import { waitUnlessStuck } from "./waitFor.js";
 import { buildImageCast, inImage, needsLook } from "./cast.js";
 import { resolveImagePrompt } from "./resolve.js";
 import { renderCastList, renderV2Rules, renderV2ManualPrompt, renderV2InlineInstruction, renderV2InlineSplit, renderV2Extras, splitCombinedAnswer } from "./prompt.js";
-import { refreshOutfitTags, storeOutfitTags, storeNewLooks, takeLookAttempts, releaseLookAttempts, warnLooklessInScene, warnLooksNotMade, sheetSourceFor } from "./looks.js";
+import { refreshOutfitTags, storeOutfitTags, storeNewLooks, takeLookAttempts, releaseLookAttempts, warnLooklessInScene, warnLooksNotMade, sheetSourceFor, looksSettled, looksBeingRead } from "./looks.js";
 
 export const V2_DEFAULTS = {
     style: "tags", shot: "cinematic", extra: "", method: "placeholders",
@@ -166,12 +168,19 @@ export function cleanModelPrompt(raw) {
 
 // ── The inline instruction ([[img1]]) ────────────────────────────────────
 
+// Characters in the scene with no look yet, whose look is read after the reply,
+// before the image goes out: the story model still writes them as @Name.
+function inlineLookPending(cast, cfg) {
+    return cfg.autoLooks === false ? [] : cast.filter(m => needsLook(m, cfg.shot)).map(m => m.name);
+}
+
 export function v2InlineInstruction({ conditionalText = "", imageCount = 1 } = {}) {
     const cfg = v2Settings();
+    const cast = currentImageCast();
     return sub(renderV2InlineInstruction({
         conditionalText,
         imageCount,
-        castList: renderCastList(currentImageCast(), { shot: cfg.shot, method: cfg.method }),
+        castList: renderCastList(cast, { shot: cfg.shot, method: cfg.method, lookPending: inlineLookPending(cast, cfg) }),
         rules: rules(),
         method: cfg.method,
         previous: getLastImagePrompt()
@@ -181,9 +190,10 @@ export function v2InlineInstruction({ conditionalText = "", imageCount = 1 } = {
 /** The V11 preset's split of the same instruction: rules up top, the cast in <turn_notes>. */
 export function v2InlineSplit({ conditionalText = "" } = {}) {
     const cfg = v2Settings();
+    const cast = currentImageCast();
     const out = renderV2InlineSplit({
         conditionalText,
-        castList: renderCastList(currentImageCast(), { shot: cfg.shot, method: cfg.method }),
+        castList: renderCastList(cast, { shot: cfg.shot, method: cfg.method, lookPending: inlineLookPending(cast, cfg) }),
         rules: rules(),
         method: cfg.method,
         previous: getLastImagePrompt()
@@ -210,9 +220,27 @@ export async function v2PrepareImagePrompt() {
     // future work that truly needs a call of its own.
 }
 
+// The story model wrote this image in its reply: Chomusuke may still be reading
+// the reply's World State (outfits, who arrived), and the looks for new
+// characters may still be read after it. The image waits for both.
+async function waitForImageInputs() {
+    const work = (async () => { await worldReadsSettled(); await looksSettled(); })();
+    const quick = await waitUnlessStuck(work, { limitMs: 250, tickMs: 250 });
+    if (quick === "done") return;
+    const who = looksBeingRead();
+    toastr.info(who.length
+        ? `Waiting for ${[...new Set(who)].join(", ")}'s look before drawing…`
+        : "Waiting for World State before drawing…", "Megumin Suite", { timeOut: 4000 });
+    if (await waitUnlessStuck(work, { limitMs: 60000, isPaused: bgPreviewOpen }) === "gave-up") {
+        console.warn("[Megumin-Suite] Image V2: still waiting for World State or a look after 60s; drawing without it.");
+    }
+}
+
 export async function v2ResolveForComfy(prompt) {
-    // Every image path ends here (manual, automatic, inline, retry): bring any
-    // changed outfit tags up to date first. No-op when detailed tags are off.
+    // Every image path ends here (manual, automatic, inline, retry): wait for
+    // a World State read or a look still running, then bring any changed
+    // outfit tags up to date. Each is a no-op when nothing is pending.
+    await waitForImageInputs();
     await refreshOutfitTags();
     const r = resolveImagePrompt(prompt, { cast: currentImageCast(), style: v2Settings().style });
     lastResolution = { input: String(prompt || ""), ...r };

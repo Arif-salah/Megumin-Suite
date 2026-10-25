@@ -20,6 +20,11 @@ import { extensionName } from "../core/constants.js";
 import { getCurrentConnectionProfileId, chomusukeJobRunning, chomusukeProfileNow } from "./tasks.js";
 import { bgJobLabel, bgJobWanted, messageText, editableText, applyEditedTexts, makeLogEntry, pushLog } from "./bgPromptsCore.js";
 
+// How many preview popups are open (an image waiting on a job doesn't count the
+// time you spend reading one).
+let previewsOpen = 0;
+export function bgPreviewOpen() { return previewsOpen > 0; }
+
 const LOG_KEY = "megumin_background_prompts";
 
 function gs() {
@@ -125,7 +130,9 @@ export async function reviewBackgroundPrompt(messages, job) {
     });
 
     const popup = new Popup($root, POPUP_TYPE.CONFIRM, "", { okButton: "Send", cancelButton: "Cancel", wide: true, large: true, allowVerticalScrolling: true });
-    const confirmed = await popup.show();
+    previewsOpen++;
+    let confirmed;
+    try { confirmed = await popup.show(); } finally { previewsOpen--; }
 
     if ($root.find(".bgp-stop-box").prop("checked")) {
         settings.bgPreviewJobs = { ...(settings.bgPreviewJobs || {}), [job]: false };

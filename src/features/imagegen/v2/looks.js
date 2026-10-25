@@ -51,7 +51,7 @@ function chatSource(count = 30) {
 }
 
 export function sheetSource() {
-    return buildCharacterSheets().replace(/^Use these sheets for what each character looks like:\s*/, "").trim();
+    return buildCharacterSheets({ personality: true }).replace(/^Use these sheets for what each character looks like:\s*/, "").trim();
 }
 
 /** The sheets plus the lorebook entries about these characters, for a look read in an image call. */
@@ -138,11 +138,13 @@ export async function scanLooks({ from, targets = [], interactive = true }) {
     const user = renderLookScanPrompt({ source, sourceLabel: from === "sheet" ? "Character_Sheets" : "Recent_Story", names, lore, sheets });
     const raw = await ask(LOOK_SCAN_SYSTEM, user);
     if (getContext()?.chatId !== chatAtStart) return null; // the user moved on: this belongs to another chat
+    // No answer at all (cancelled, refused, failed): the automatic look asks again later.
+    const empty = !String(raw || "").trim();
 
     const scanned = matchScanToTargets(parseLookBlocks(raw), targets);
     if (!scanned.length) {
         if (interactive) toastr.warning("The scan found no appearance to use.", "Megumin Suite");
-        return { added: [], changed: [], locked: [], same: [] };
+        return { added: [], changed: [], locked: [], same: [], empty };
     }
 
     const looks = getLooks();
@@ -240,6 +242,19 @@ export function releaseLookAttempts(chatId, members) {
     (members || []).forEach(m => attempted.delete(`${chatId}|${m.name.toLowerCase()}`));
 }
 
+// Automatic look reads still running: an image the story model wrote waits for them.
+const lookReads = new Set();
+
+/** Resolves once no automatic look read is running (now if none is). */
+export async function looksSettled() {
+    while (lookReads.size) await Promise.allSettled([...lookReads]);
+}
+
+/** Names whose automatic look is being read right now. */
+export function looksBeingRead() {
+    return [...lookReads].flatMap(p => p.names || []);
+}
+
 /**
  * Someone in the scene has no look (and no NPC Bank tags): read one for them
  * from the card and the recent chat, in the background, and add it. Never changes an
@@ -259,19 +274,28 @@ export function v2LooksForArrivals() {
     // The image cast already knows who has a look (stored, NPC Bank, or one
     // saved under a first name), so it decides who is missing one.
     const cast = currentImageCast();
+    // The player too (their look comes from the persona), unless the shot is through their eyes.
     const missing = cfg.autoLooks === false ? [] : cast    // off: "Automatic look for new characters"
-        .filter(m => !m.isPc && needsLook(m) && !attempted.has(`${chatId}|${m.name.toLowerCase()}`))
+        .filter(m => needsLook(m, cfg.shot) && !attempted.has(`${chatId}|${m.name.toLowerCase()}`))
         .map(m => ({ name: m.name, aliases: m.aliases || [] }));
     warnLooklessInScene(chatId, cast, cfg.shot, missing);
     if (!missing.length) return;
     missing.forEach(t => attempted.add(`${chatId}|${t.name.toLowerCase()}`));
-    scanLooks({ from: "auto", targets: missing, interactive: false })
+    const read = scanLooks({ from: "auto", targets: missing, interactive: false })
         .then(r => {
-            if (!r || getContext()?.chatId !== chatId) return;
+            // Nothing came back (cancelled, refused, failed): ask again on the next reply.
+            if (!r || r.empty) { releaseLookAttempts(chatId, missing); return; }
+            if (getContext()?.chatId !== chatId) return;
             if (r.added.length) toastr.info(`New look${r.added.length === 1 ? "" : "s"} for ${r.added.join(", ")}.`, "Megumin Suite", { timeOut: 3500 });
             warnLooksNotMade(missing, r.added);
         })
-        .catch(e => console.error("[Megumin-Suite] Automatic look scan failed", e));
+        .catch(e => {
+            releaseLookAttempts(chatId, missing);
+            console.error("[Megumin-Suite] Automatic look scan failed", e);
+        });
+    read.names = missing.map(m => m.name);
+    lookReads.add(read);
+    read.finally(() => lookReads.delete(read));
 }
 
 // ── Detailed outfit tags ─────────────────────────────────────────────────

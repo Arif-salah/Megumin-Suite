@@ -89,13 +89,18 @@ export function classicImageRulesBlock(parts) {
  * characters look like instead of guessing from the last few messages. In a
  * group chat, every member's description.
  */
-export function buildCharacterSheets() {
+/**
+ * @param {{ personality?: boolean }} [opts]
+ *   personality: add the card's Personality field (look reads: some cards keep
+ *   the looks there). Off for the Classic manual prompt, which sends this every time.
+ */
+export function buildCharacterSheets({ personality = false } = {}) {
     const ctx = getContext();
     const sub = t => { try { return substituteParams(t); } catch (e) { return t; } };
     const clean = t => String(t || "").trim();
     const parts = [];
     const sheet = ch => {
-        const desc = clean(ch && ch.description);
+        const desc = [clean(ch && ch.description), personality ? clean(ch && ch.personality) : ""].filter(Boolean).join("\n\n");
         if (desc) parts.push(`<character_sheet name="${ch.name}">\n${sub(desc)}\n</character_sheet>`);
     };
     if (ctx.groupId !== undefined && ctx.groupId !== null) {
