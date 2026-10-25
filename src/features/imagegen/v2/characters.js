@@ -8,7 +8,7 @@ import { localProfile } from "../../../core/state.js";
 import { saveProfileToMemory } from "../../../core/profile.js";
 import { Popup, POPUP_TYPE } from "../../../st.js";
 import { v2Settings, currentImageCast, getLooks } from "./index.js";
-import { scanLooks, describeLooks } from "./looks.js";
+import { scanLooks, describeLooks, sheetSource } from "./looks.js";
 import { findLookKey, outfitHash } from "./looksCore.js";
 import { card, busy, esc } from "../../../ui/controls.js";
 
@@ -122,6 +122,8 @@ async function openLookEditor(name, redraw) {
         const detailed = cfg.outfitTags && cfg.style === "tags";
         const outfitLocked = Boolean(stored && stored.outfitTags && stored.outfitTags.locked);
         const nicknames = [...new Set([...(stored ? stored.aliases || [] : []), ...(member.aliases || [])])].join(", ");
+        // A card can describe more than its own character, so the button shows whenever there is one.
+        const hasCard = Boolean(sheetSource());
 
         $root.append(`
             <div class="igx-editor-head">
@@ -151,6 +153,7 @@ async function openLookEditor(name, redraw) {
                 <div class="ps-switch"></div>
             </div>
             <div class="igx-actions">
+                ${hasCard ? `<button type="button" class="menu_button igx-btn igx-ed-rescan-card" title="Read this character's look from the character card or your persona"><i class="fa-solid fa-id-card"></i> Read the look again from the card</button>` : ""}
                 <button type="button" class="menu_button igx-btn igx-ed-rescan"><i class="fa-solid fa-magnifying-glass"></i> Read the look again from the chat</button>
                 ${stored ? `<button type="button" class="menu_button igx-btn danger igx-ed-forget"><i class="fa-solid fa-trash"></i> Delete this look</button>` : ""}
             </div>
@@ -200,6 +203,9 @@ async function openLookEditor(name, redraw) {
         });
         busy($root.find(".igx-ed-rescan"),
             () => scanLooks({ from: "chat", targets: [{ name: member.name, aliases: member.aliases || [] }] }),
+            () => { if (!gone) draw(); });
+        busy($root.find(".igx-ed-rescan-card"),
+            () => scanLooks({ from: "sheet", targets: [{ name: member.name, aliases: member.aliases || [] }] }),
             () => { if (!gone) draw(); });
         const $forget = $root.find(".igx-ed-forget");
         $forget.on("click", () => {

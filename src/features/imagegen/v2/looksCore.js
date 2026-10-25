@@ -15,19 +15,24 @@ export const LOOK_SCAN_SYSTEM =
     "You read story text and write each character's permanent physical appearance as booru tags for an image model.";
 
 /**
- * @param {{ source: string, sourceLabel?: string, names?: string[], lore?: string }} args
- *   names — only these characters; empty = everyone described in the source
- *   lore  — lorebook entries about them, read before the source
+ * @param {{ source: string, sourceLabel?: string, names?: string[], lore?: string, sheets?: string }} args
+ *   names  — only these characters; empty = everyone described in the source
+ *   lore   — lorebook entries about them, read before the source
+ *   sheets — the card's character and persona sheets, read before the story;
+ *            a character who has one looks the way it says
  */
-export function renderLookScanPrompt({ source, sourceLabel = "Source", names = [], lore = "" }) {
+export function renderLookScanPrompt({ source, sourceLabel = "Source", names = [], lore = "", sheets = "" }) {
     const who = names.length
         ? `these characters: ${names.join(", ")}. Skip anyone the text does not describe.`
         : "every character the text describes.";
     const loreText = String(lore || "").trim();
+    const sheetText = String(sheets || "").trim();
     return [
         ...(loreText ? ["<Lore>", loreText, "</Lore>", ""] : []),
+        ...(sheetText ? ["<Character_Sheets>", sheetText, "</Character_Sheets>", ""] : []),
         ...(String(source || "").trim() ? [`<${sourceLabel}>`, String(source).trim(), `</${sourceLabel}>`, ""] : []),
         `Write the permanent appearance of ${who}`,
+        ...(sheetText ? [SHEET_FIRST] : []),
         "Write 8 to 12 booru tags per character, only the ones you would recognise them by. Always start with their sex (male or female) and apparent age (young adult, mature female…), then hair (colour, length, style), eye colour, skin, body type, and permanent features (scars, tattoos, horns, animal ears, tails, wings).",
         "- A man who looks feminine: add \"otoko no ko, flat chest\". A woman who looks masculine: add \"tomboy\". Without them the image model draws the wrong sex.",
         "- Age is one of these tags, never a number or a decade: young adult, adult, mature female, mature male, old woman, old man. \"late 20s\" is \"young adult\"; \"30s\" is \"adult\".",
@@ -43,6 +48,31 @@ export function renderLookScanPrompt({ source, sourceLabel = "Source", names = [
         "Output one block per character and nothing else:",
         "<Character_Visual name=\"Name\">tag, tag, tag</Character_Visual>"
     ].join("\n");
+}
+
+// A character on the card looks the way the card says, even when the story so
+// far is only a greeting that says little about them.
+export const SHEET_FIRST = "A character who has a sheet in <Character_Sheets> looks the way the sheet says. Use the story only for what the sheet leaves out.";
+
+/** The names on the sheets (`<character_sheet name="…">`, `<persona_sheet name="…">`). */
+export function sheetNames(sheets) {
+    const out = [];
+    const re = /<(?:character|persona)_sheet name="([^"]+)"/g;
+    let m;
+    while ((m = re.exec(String(sheets || "")))) if (m[1].trim()) out.push(m[1].trim());
+    return out;
+}
+
+/**
+ * Where an automatic look came from: "sheet" when the character is on the card
+ * (same name, or one starts the other in whole words: "Resha" and "Resha
+ * Helios"), else "chat".
+ */
+export function lookSourceFor(name, aliases, cardNames) {
+    const low = s => String(s || "").trim().toLowerCase();
+    const mine = [name, ...(aliases || [])].map(low).filter(Boolean);
+    const fits = (a, b) => a === b || a.startsWith(b + " ") || b.startsWith(a + " ");
+    return (cardNames || []).map(low).filter(Boolean).some(c => mine.some(n => fits(n, c))) ? "sheet" : "chat";
 }
 
 export const NATURAL_SYSTEM =
