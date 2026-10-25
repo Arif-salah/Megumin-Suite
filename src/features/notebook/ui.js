@@ -15,7 +15,7 @@ import { localProfile } from "../../core/state.js";
 import { saveProfileToMemory } from "../../core/profile.js";
 import { meguminScheduleBlocksRefresh } from "../blocks/chat.js";
 import {
-    notebookEnabled, notebookForcedByEngine, notebookCurrentPhase, notebookState,
+    notebookEnabled, notebookComesWithEngine, notebookCurrentPhase, notebookState,
     notebookEdit, notebookTurnLabel
 } from "../../state/index.js";
 import { liveTruths, pastTruths, LIVE_CAP } from "../../state/modules/notebook/model.js";
@@ -144,7 +144,7 @@ export function renderNotebookTab(c) {
     const scrollBox = c[0] ? scrollParent(c[0]) : null;
     const keepScroll = scrollBox ? scrollBox.scrollTop : 0;
     c.empty();
-    const forced = notebookForcedByEngine();
+    const v11 = notebookComesWithEngine();
     const on = notebookEnabled();
     const chatId = getContext()?.chatId;
     const hasChat = Boolean(chatId);
@@ -154,7 +154,8 @@ export function renderNotebookTab(c) {
     const live = state ? liveTruths(state).length : 0;
     const past = state ? pastTruths(state).length : 0;
 
-    const status = !on ? "The notebook is off."
+    const status = !on && v11 ? "The notebook is off. V11's engine still talks about its notebook, so edit the engine in Dev Mode and take out the lines about it."
+        : !on ? "The notebook is off."
         : !hasChat ? "Open a chat to see its notebook."
         : phase === "setup" ? "The next reply writes the notebook: two or three hidden truths."
         : `${live} of ${LIVE_CAP} truths are live in this chat${past ? `, ${past} came out` : ""}.`;
@@ -169,8 +170,8 @@ export function renderNotebookTab(c) {
                         <p>The story decides a few hidden truths, keeps them from turn to turn, plants clues, and reveals them when the story is ready. World State stops asking for a Secret while this is on.</p>
                     </div>
                 </div>
-                <div class="mtab-toggle-row nbx-switch ${on ? "active" : ""}" id="nb_enable_card" title="${forced ? "V11 always uses its notebook, so it can't be turned off." : ""}" style="${forced ? "cursor: default;" : ""}">
-                    <div class="toggle-info"><div class="toggle-label">${forced ? "Forced on for V11" : on ? "Notebook on" : "Notebook off"}</div></div>
+                <div class="mtab-toggle-row nbx-switch ${on ? "active" : ""}" id="nb_enable_card" title="${v11 ? "V11 is written with its notebook. Turning it off isn't recommended." : ""}">
+                    <div class="toggle-info"><div class="toggle-label">${on ? "Notebook on" : "Notebook off"}</div></div>
                     <div class="ps-switch"></div>
                 </div>
             </div>
@@ -185,9 +186,21 @@ export function renderNotebookTab(c) {
         </div>
     `);
 
-    c.find("#nb_enable_card").on("click", () => {
-        if (forced) return;
-        localProfile.notebook = { ...(localProfile.notebook || {}), enabled: !on };
+    c.find("#nb_enable_card").on("click", async () => {
+        if (v11) {
+            if (on) {
+                const popup = new Popup(
+                    "<h3>Turn the notebook off for V11?</h3>" +
+                    "<p>This isn't recommended. V11's engine text talks about its notebook, so the story keeps expecting one.</p>" +
+                    "<p>If you turn it off, edit the V11 engine in Dev Mode too and take out the lines about the notebook.</p>",
+                    POPUP_TYPE.CONFIRM, "", { okButton: "Turn it off", cancelButton: "Keep it on" }
+                );
+                if (!(await popup.show())) return;
+            }
+            localProfile.notebook = { ...(localProfile.notebook || {}), offForV11: on };
+        } else {
+            localProfile.notebook = { ...(localProfile.notebook || {}), enabled: !on };
+        }
         saveProfileToMemory();
         meguminScheduleBlocksRefresh();
         renderNotebookTab(c);

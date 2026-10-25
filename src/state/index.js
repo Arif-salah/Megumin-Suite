@@ -555,19 +555,23 @@ function activeEngine() {
     return [...(hardcodedLogic.modes || []), ...custom].find(m => m.id === localProfile?.mode) || null;
 }
 
-/** The engine turns the notebook on by itself (the switch can't turn it off). */
-export function notebookForcedByEngine() {
+/** The engine turns the notebook on by itself (V11). The user can still turn it off. */
+export function notebookComesWithEngine() {
     return engineKeepsNotebook(activeEngine());
 }
 
+// V11 has its own switch (offForV11), so turning it off there doesn't change
+// what older engines do, and the other way round.
 export function notebookEnabled() {
     if (!localProfile) return false;
-    return notebookForcedByEngine() || Boolean(localProfile.notebook && localProfile.notebook.enabled);
+    const nb = localProfile.notebook || {};
+    return notebookComesWithEngine() ? !nb.offForV11 : Boolean(nb.enabled);
 }
 
 // There is no per-chat pause any more (it was removed with the tab's "Pause in
-// this chat"): V11's text always speaks of its notebook, so it must always have
-// one. An old chat's `megumin_notebook.paused` flag is simply ignored.
+// this chat"): V11's text always speaks of its notebook, so it only goes off
+// with the tab's switch, behind a warning. An old chat's
+// `megumin_notebook.paused` flag is simply ignored.
 
 export function notebookState() {
     return stateStore.getState("notebook");
