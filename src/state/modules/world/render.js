@@ -12,7 +12,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { nameKey } from "./parse.js";
-import { fieldLabel, presentCast, castDisplayName } from "./model.js";
+import { fieldLabel, presentCast, castDisplayName, LIST_LIMITS } from "./model.js";
 
 export const PC_FIELDS = ["outfit", "position", "condition", "carrying"];
 export const NPC_FIELDS = ["outfit", "position", "mood", "agenda", "secret"];
@@ -60,7 +60,7 @@ export function findReturning(state, recentText) {
 /**
  * @param {object} state
  * @param {{ detail?: "full"|"scene", returning?: object[], pcName?: string, noSecret?: boolean }} [opts]
- *   noSecret — the Author's Notebook is on: hidden things live there, not here
+ *   noSecret — the Author's Notebook is on: hidden things (Secret, Seeds) live there, not here
  */
 export function renderWorldForPrompt(state, opts = {}) {
     if (isEmptyWorld(state)) return "";
@@ -114,15 +114,17 @@ export function renderWorldForPrompt(state, opts = {}) {
     }
 
     if (full) {
-        const list = (title, items) => {
-            if (!items || !items.length) return;
+        // Numbered, so a removal can name the number instead of copying the text.
+        const list = (key, title) => {
+            const items = state[key] || [];
+            if (!items.length) return;
             lines.push("");
-            lines.push(title);
-            for (const it of items) lines.push(`  - ${it}`);
+            lines.push(`${title} (${items.length} of ${LIST_LIMITS[key]})`);
+            items.forEach((it, i) => lines.push(`  ${i + 1}. ${it}`));
         };
-        list("Threads", state.threads);
-        list("Seeds", state.seeds);
-        list("Timers", state.timers);
+        list("threads", "Threads");
+        if (!opts.noSecret) list("seeds", "Seeds");
+        list("timers", "Timers");
         const phases = [];
         if (state.arcPhase) phases.push(`Arc: ${state.arcPhase}`);
         if (state.scenePhase) phases.push(`Scene: ${state.scenePhase}`);
@@ -143,10 +145,19 @@ const DEEP_CURRENTS_UPDATE =
     "A Secret changes only when it is exposed or a new one is born. A Thread closes only when the story answers it. " +
     "A small moment is never a reason to rewrite them.";
 
+const LISTS_UPDATE =
+    `- Keep at most ${LIST_LIMITS.threads} Threads, ${LIST_LIMITS.seeds} Seeds and ${LIST_LIMITS.timers} Timers. ` +
+    "When a list is full and you want to add one, first remove the one that matters least or the one the story has already answered. " +
+    "<Current_World_State> numbers each Thread, Seed and Timer, so to remove one you can write its number.";
+
 // While the Author's Notebook is on (plan 010), hidden things live in the
-// notebook only, so World State stops asking for a Secret.
+// notebook only, so World State stops asking for a Secret, and for Seeds: the
+// notebook's clues are the foreshadowing (plan 020).
 export function withoutSecret(text) {
     return String(text || "")
+        .split(`${LIST_LIMITS.threads} Threads, ${LIST_LIMITS.seeds} Seeds and `).join(`${LIST_LIMITS.threads} Threads and `)
+        .split("each Thread, Seed and Timer").join("each Thread and Timer")
+        .split("\n").filter(l => !/^Seed\+:/.test(l)).join("\n")
         .split("Mood, Agenda, Secret and Threads").join("Mood, Agenda and Threads")
         .split("Outfit, Position, Mood, Agenda, Secret").join("Outfit, Position, Mood, Agenda")
         .split("A Secret changes only when it is exposed or a new one is born. ").join("")
@@ -190,9 +201,9 @@ function worldInstructions(mode) {
                 "[NPC Name].Secret: [something that would change how others see them, or shift the story, if it came out]",
                 "(repeat \"+ [NPC Name]\" and its fields for each character present)",
                 "Offscreen: [NPC Name] = [where they are, what they are doing]",
-                "Thread+: [a major tension or open question the story will have to answer, 3 to 5 lines total]",
-                "Seed+: [foreshadowing detail, what it hints at]",
-                "Timer+: [consequence]: [turns remaining]",
+                `Thread+: [a major tension or open question the story will have to answer, at most ${LIST_LIMITS.threads} lines in all]`,
+                `Seed+: [foreshadowing detail, what it hints at; at most ${LIST_LIMITS.seeds}]`,
+                `Timer+: [consequence]: [turns remaining]   (at most ${LIST_LIMITS.timers})`,
                 "Arc: [Setup / Escalation / Complication / Crisis / Resolution]",
                 "Scene: [Early Simmer / Building / Midpoint Tension / Climax / Breather]",
                 "</World_State>"
@@ -212,10 +223,10 @@ function worldInstructions(mode) {
             "+ <Name>                                someone enters the scene; follow with their Outfit, Position, Mood, Agenda, Secret lines",
             "- <Name>: <where they went or what they are doing now>",
             "Offscreen: <Name> = <where they are / what they are doing>",
-            "Thread+: <new tension>        Thread-: <resolved tension, copied as written>",
-            "Seed+: <foreshadowing detail>   Seed-: <paid-off seed>",
+            "Thread+: <new tension>        Thread-: <its number, or the resolved tension as written>",
+            "Seed+: <foreshadowing detail>   Seed-: <its number, or the paid-off seed>",
             "Timer+: <consequence>: <turns left>   to count a timer down, write it again with the new count; it replaces the old one",
-            "Timer-: <consequence>                 the timer fired or no longer applies",
+            "Timer-: <its number, or the consequence>   the timer fired or no longer applies",
             "Arc: <Setup/Escalation/Complication/Crisis/Resolution>",
             "Scene: <Early Simmer/Building/Midpoint Tension/Climax/Breather>",
             "- Use names exactly as they appear in <Current_World_State>. {{user}} is written as {{user}}.",
@@ -224,6 +235,7 @@ function worldInstructions(mode) {
             "- Clothing changes matter: if anyone's clothes changed at all (removed, torn, wet, swapped), write their new Outfit.",
             "- An Outfit is the complete visible outfit, top to bottom, with colours and materials (\"grey hoodie, black joggers, white socks\"), never a summary like \"casual clothes\" or \"loungewear\".",
             DEEP_CURRENTS_UPDATE,
+            LISTS_UPDATE,
             "- If nothing changed, write exactly: No changes"
         ].join("\n"),
         template: "<World_Update>\n[change lines, or: No changes]\n</World_Update>"
@@ -268,7 +280,7 @@ export function renderWorldCard(state, opts = {}) {
         tail.push("**🔥 Unresolved Threads:**");
         for (const t of state.threads) tail.push(`* ${t}`);
     }
-    if ((state.seeds || []).length) tail.push(`**🌱 Planted Seeds:** ${state.seeds.join("; ")}`);
+    if (!opts.noSecret && (state.seeds || []).length) tail.push(`**🌱 Planted Seeds:** ${state.seeds.join("; ")}`);
     if ((state.timers || []).length) tail.push(`**⏳ Consequence Timers:** ${state.timers.join("; ")}`);
     if (state.arcPhase) tail.push(`**🎯 Arc Phase:** ${state.arcPhase}`);
     if (state.scenePhase) tail.push(`**🎬 Scene Phase:** ${state.scenePhase}`);

@@ -31,6 +31,21 @@ const SCENE_LABEL = { time: "Time", location: "Loc", weather: "Wx" };
 const PHASE_LABEL = { arcPhase: "Arc", scenePhase: "Scene" };
 const LIST_LABEL = { threads: "Thread", seeds: "Seed", timers: "Timer" };
 
+// How long each list may grow (plan 020). Past it, a reply's lists lose their
+// oldest items, so a model that only ever adds can't bury the story in them.
+export const LIST_LIMITS = { threads: 3, seeds: 3, timers: 2 };
+
+// "Seed-: 2" / "#2" / "Seed 2": an item by its number in <Current_World_State>,
+// which lists them as they stood before the reply.
+const LIST_REF = /^(?:#|no\.?\s*|(?:thread|seed|timer)s?\s*#?)?(\d{1,2})\.?$/i;
+
+function listRef(list, value) {
+    const m = String(value || "").trim().match(LIST_REF);
+    if (!m) return null;
+    const n = Number(m[1]);
+    return n >= 1 && n <= list.length ? list[n - 1] : null;
+}
+
 export function fieldLabel(field) {
     return String(field || "").replace(/\b\p{L}/gu, c => c.toUpperCase());
 }
@@ -174,6 +189,7 @@ export function applyWorldChanges(prev, parsed, ctx = {}) {
     const unannounced = [];
     const seq = typeof ctx.seq === "number" ? ctx.seq : 0;
     if (!parsed || !Array.isArray(parsed.changes)) return { state, applied, notes, unannounced };
+    const startLists = Object.fromEntries(LISTS.map(k => [k, [...(state[k] || [])]]));
 
     const note = (label, before, after) => {
         if (before !== after) applied.push({ label, before: before || "", after: after || "" });
@@ -357,7 +373,7 @@ export function applyWorldChanges(prev, parsed, ctx = {}) {
                     // timer whichever order the model wrote them in.
                     pendingAdds.push(ch);
                 } else if (ch.op === "remove") {
-                    const i = find(list, ch.value);
+                    const i = find(list, listRef(startLists[ch.list], ch.value) ?? ch.value);
                     if (i >= 0) {
                         const [gone] = list.splice(i, 1);
                         note(`${label} −`, gone, "");
@@ -395,6 +411,18 @@ export function applyWorldChanges(prev, parsed, ctx = {}) {
         const before = state[key].join(" · ");
         state[key] = deduped;
         note(`${LIST_LABEL[key]}s`, before, deduped.join(" · "));
+    }
+
+    // Over the limit, the oldest go. A list the reply wrote out whole (a first
+    // World State) keeps the first ones it wrote. The user's own edits aren't cut.
+    if (!parsed.byUser) {
+        for (const key of LISTS) {
+            const list = state[key] || (state[key] = []);
+            while (list.length > LIST_LIMITS[key]) {
+                const gone = listItems[key] ? list.pop() : list.shift();
+                note(`${LIST_LABEL[key]} − (list full)`, gone, "");
+            }
+        }
     }
 
     return { state, applied, notes, unannounced };

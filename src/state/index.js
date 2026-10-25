@@ -232,7 +232,7 @@ export function worldSameCharacter(name, into) {
 /** A manual edit from the editor. Returns the entry, or null with no chat open. */
 export function worldEdit(changes) {
     if (!adapter.getMeta() || !Array.isArray(changes) || !changes.length) return null;
-    return stateStore.addUserEntry("world", { kind: "delta", changes, skipped: [], noChanges: false });
+    return stateStore.addUserEntry("world", { kind: "delta", changes, skipped: [], noChanges: false, byUser: true });
 }
 
 export function worldSetEntryDisabled(entryId, disabled) {

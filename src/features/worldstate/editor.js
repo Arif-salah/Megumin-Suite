@@ -14,9 +14,9 @@
 import { Popup, POPUP_TYPE, substituteParams } from "../../st.js";
 import {
     getWorldState, worldEdit, worldHistory, worldSetEntryDisabled, worldRemoveUserEntry,
-    worldImportRange, worldChatOpen, stateStore
+    worldImportRange, worldChatOpen, stateStore, notebookEnabled
 } from "../../state/index.js";
-import { presentCast, fieldLabel } from "../../state/modules/world/model.js";
+import { presentCast, fieldLabel, LIST_LIMITS } from "../../state/modules/world/model.js";
 import { PC_FIELDS, NPC_FIELDS } from "../../state/modules/world/render.js";
 import { PC } from "../../state/modules/world/parse.js";
 import { meguminScheduleBlocksRefresh } from "../blocks/chat.js";
@@ -76,7 +76,8 @@ function renderStateView(state) {
 
     const list = l => `
         <div class="meg-wsed-list">
-            <div class="meg-wsed-sub"><i class="fa-solid ${l.icon}"></i> ${l.title}</div>
+            <div class="meg-wsed-sub"><i class="fa-solid ${l.icon}"></i> ${l.title}
+                <span class="meg-wsed-tag" title="When a reply leaves more than ${LIST_LIMITS[l.key]}, the oldest one is removed.">at most ${LIST_LIMITS[l.key]}</span></div>
             ${(state[l.key] || []).map(item => `
                 <div class="meg-wsed-listrow">
                     ${input({ kind: "listitem", list: l.key }, item)}
@@ -121,7 +122,7 @@ function renderStateView(state) {
 
         <div class="meg-wsed-section">
             <div class="meg-wsed-title"><i class="fa-solid fa-book-open"></i> Story threads</div>
-            ${LISTS.map(list).join("")}
+            ${LISTS.filter(l => !(l.key === "seeds" && notebookEnabled())).map(list).join("")}
         </div>`;
 }
 
