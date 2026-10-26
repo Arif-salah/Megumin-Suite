@@ -6,7 +6,7 @@ import { emptyNotebook, applyNotebook } from "./model.js";
 
 export const notebookModule = {
     id: "notebook",
-    version: 1,
+    version: 2,
     empty: emptyNotebook,
     parse: text => parseNotebook(text),
     apply: applyNotebook

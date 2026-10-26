@@ -61,12 +61,21 @@ function fieldOf(line) {
     return hit ? { key: hit[1], value: m[2].trim() } : null;
 }
 
-/** "Mira, Old Tomas and the reader" → ["Mira", "Old Tomas", "the reader"]. */
+// A word that starts a reason, not a name: "the reader, because it hasn't been
+// shown", "Mira, who suspects", "Tomas doesn't know". Everything from it on goes.
+const REASON = /(?:^|\s)(?:because|becuase|becasue|becaus|becouse|bc|cuz|coz|cause|since|as|who|whom|which|until|unless|but|though|although|while|yet|so|has|have|had|is|are|was|were|does|did|knows?|cannot|never|not|(?:has|have|is|are|was|were|does|do|did|ca|wo)n['’]t)(?=\s|$).*$/i;
+const MAX_NAME_WORDS = 6;
+
+/** "Mira, Old Tomas and the reader" → ["Mira", "Old Tomas", "the reader"]. Reasons the model added are left out. */
 export function splitNames(text) {
+    const seen = new Set();
     return String(text || "")
+        .replace(/\([^)]*\)?|\[[^\]]*\]?/g, " ")
         .split(/\s*(?:,|;|\/|\band\b|&)\s*/i)
-        .map(s => s.replace(/[.*_"“”]/g, "").trim())
-        .filter(s => s && !/^(no ?one|nobody|none|-)$/i.test(s));
+        .map(s => s.replace(/[.*_"“”]/g, "").replace(/\s[—–-]\s.*$/, "").replace(REASON, "").replace(/\s+/g, " ").trim())
+        .map(s => (/^(?:the\s+)?reader\b/i.test(s) ? "the reader" : s))
+        .filter(s => s && !/^(no ?one|nobody|none|-)$/i.test(s) && s.split(" ").length <= MAX_NAME_WORDS)
+        .filter(s => !seen.has(s.toLowerCase()) && seen.add(s.toLowerCase()));
 }
 
 function finishEntry(e) {

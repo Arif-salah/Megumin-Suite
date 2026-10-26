@@ -15,7 +15,7 @@ import { LIVE_CAP, liveTruths } from "./model.js";
 export const NOTEBOOK_TRUTH_FORM = [
     "T1",
     "Truth: what is actually true, in a few plain sentences, with enough detail that every later clue and the reveal itself can be written from it.",
-    "Hidden from: who doesn't know it. Name the characters, and add \"the reader\" if the story hasn't shown it on the page.",
+    "Hidden from: the names of the characters who don't know it, plus \"the reader\" if the story hasn't shown it on the page. Only the names, separated by commas.",
     "Comes out when: what has to happen in the story for it to come out.",
     "What it changes: who acts differently once it's out, and how.",
     "Clue ideas: two or three small things the story could show that point at it and could also mean something else."
