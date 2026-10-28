@@ -15,7 +15,7 @@ const CAP_MARK = "A mental draft is a draft.";
 
 /** The nudge for this thinking choice, or "" when it has none. */
 export function thinkingNudgeFor(model) {
-    return String(model || "").startsWith("cot-v11-cap-") ? V11_CAP_NUDGE : "";
+    return /^cot-v11-(voice-|wr-)?cap-/.test(String(model || "")) ? V11_CAP_NUDGE : "";
 }
 
 /**

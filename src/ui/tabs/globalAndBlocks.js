@@ -40,7 +40,6 @@ export function renderGlobalAndBlocks(c) {
         "direct": "Forces AI to say words like D and P. No dancing around the subject, no polite deflection. you know what i mean. <b>Not needed on V10</b> — that engine already writes this way, so switching it on just repeats the instruction.",
         "color": "Each character's dialogue is color-coded for easy visual parsing.",
         "npc_events": "Requires all new story events to grow naturally from prior context or environmental cues — no random drama out of nowhere. V6 only.",
-        "dn": "Forces dialogue and narration to be wrapped in their respective XML tags. Useful for specific Models for better narration style adherence. <b>Not recommended on V10</b> — the tags fight that engine's own prose rules.",
         "html": "When a character reads something — a phone screen, a letter, a sign — the AI draws the thing itself as HTML instead of describing it. Rare by design: one per reply at most, and most replies have none.",
         "dice_all": "Same d20 system, but everyone rolls — NPCs included. Any character who tries something that can fail gets a roll, all of them listed before the reply. Use this OR Dice, not both.",
         "dice": "A d20 decides whether risky attempts land. The AI rolls before it writes the scene, so the story follows the die rather than the die following the story. The roll gets its own tab on the block card."

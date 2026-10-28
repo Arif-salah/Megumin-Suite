@@ -5,7 +5,7 @@
 // loadouts.md; a loadout recommends, it never locks.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { meguminCotForMode } from "../../../data/cot/index.js";
+import { meguminCotForMode, models } from "../../../data/cot/index.js";
 import { directStyles } from "../../../data/directStyles.js";
 import { styleAfterPicking } from "../../core/engines.js";
 
@@ -28,6 +28,14 @@ export const SETTINGS = [
         key: "thinking", label: "Custom thinking", tab: "preset", page: "thinking",
         read: p => p.cotEnabled !== false,
         write: (p, on) => { p.cotEnabled = Boolean(on); }
+    },
+    {
+        // The preset's thinking, capped or not. Comes after "mode" in a
+        // loadout's settings, so it caps the thinking of the preset just picked.
+        key: "thinkingCap", label: "Thinking Cap", tab: "preset", page: "thinking",
+        desc: "Keeps the custom thinking to five short lines. For a model that thinks too long. Works only with custom thinking on.",
+        read: p => isCapped(p.model),
+        write: (p, on) => setCap(p, on)
     },
     {
         key: "length", label: "Length", tab: "preset", page: "config",
@@ -83,13 +91,26 @@ const BLOCK_IDS = ["bonds", "sheet", "chatter", "cyoa"];
 
 export const settingFor = key => SETTINGS.find(s => s.key === key);
 
+const isCapped = model => /^cot-.+-cap-/.test(model || "");
+
+/** The preset's own thinking, or its Thinking Cap when it has one. */
+function setCap(p, on) {
+    const cot = meguminCotForMode(p.mode, "english");
+    if (!cot) return;
+    const capped = cot.replace(/-english$/, "-cap-english");
+    p.model = on && models.some(m => m.id === capped) ? capped : cot;
+}
+
 /** Picks an engine the way the Preset tab does: its thinking comes with it.
+ *  A Thinking Cap stays on when the new engine has one too.
  *  The style is kept when it is a V11 style or one of your own; another
  *  generation's built-in style becomes V11 Default. */
 export function pickEngine(p, id) {
+    const wasCapped = isCapped(p.model);
     p.mode = id;
     const cot = meguminCotForMode(id, "english");
     if (cot) p.model = cot;
+    if (wasCapped) setCap(p, true);
     const builtIn = directStyles.some(s => s.id === p.activeStyleId);
     const styleId = styleAfterPicking({ id }, p.activeStyleId, builtIn);
     const ds = styleId && directStyles.find(s => s.id === styleId);
@@ -127,7 +148,7 @@ export const LOADOUTS = [
             PREFILL_OFF("GLM thinks on its own and doesn't need it."),
             CHOMUSUKE_OPTIONAL
         ],
-        settings: { mode: "v11-voice", thinking: false, length: LENGTH_SHORT, banList: "short", html: false, chomusuke: "story" }
+        settings: { mode: "v11-voice", thinking: false, thinkingCap: false, length: LENGTH_SHORT, banList: "short", html: false, chomusuke: "story" }
     },
     {
         id: "fast", name: "Fast models", icon: "fa-bolt", models: "DeepSeek",
@@ -135,7 +156,7 @@ export const LOADOUTS = [
         notes: [
             { tone: "red", chomusuke: true, text: "<b>DeepSeek needs Chomusuke.</b> It leaves out everything after the story: the blocks, World State, the notebook and the image tags. Chomusuke writes them for it." }
         ],
-        settings: { mode: "v11-deepseek", thinking: true, length: LENGTH_SHORT, banList: "short", html: false, chomusuke: "chomusuke" }
+        settings: { mode: "v11-deepseek", thinking: true, thinkingCap: false, length: LENGTH_SHORT, banList: "short", html: false, chomusuke: "chomusuke" }
     }
 ];
 

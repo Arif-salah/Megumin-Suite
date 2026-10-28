@@ -106,9 +106,10 @@ export function renderModelSetup(c) {
         <div class="mtab-header">
             <div class="mtab-header-left">
                 <div class="mtab-header-icon" style="background: linear-gradient(135deg, #0ea5e9, #a855f7);"><i class="fa-solid fa-compass"></i></div>
-                <div><h2>Model Setup</h2><p>Pick the model you play with, and use the settings we tested for it.</p></div>
+                <div><h2>Model Setup</h2><p>Pick the model you play with, and use the settings I tested for it.</p></div>
             </div>
         </div>
+        <div class="mtab-callout green" style="margin-bottom: 16px;"><i class="fa-solid fa-circle-info"></i><span><b>This page is optional.</b> A loadout is just the settings I tested for that model. Skipping it, or using a model that isn't listed, won't break the preset. You can use any engine and set everything yourself in the other tabs.</span></div>
     `);
 
     // ── Pick your model ──
@@ -218,7 +219,7 @@ function settingRow(s, l, isChanged, draft, rerender) {
         ids.forEach(id => $sel.append(`<option value="${esc(id)}" ${id === value ? "selected" : ""}>${esc(engineLabel(id))}</option>`));
         $sel.on("change", () => set($sel.val()));
         $ctl.append($sel);
-    } else if (s.key === "thinking" || s.key === "html") {
+    } else if (s.key === "thinking" || s.key === "thinkingCap" || s.key === "html") {
         $ctl.append(switchRow({ label: value ? "On" : "Off", on: value, onChange: on => set(on) }));
     } else if (s.key === "length") {
         const $sel = $(`<select class="text_pole msx-select"></select>`);
@@ -243,7 +244,7 @@ function engineLabel(id) {
 // How a loadout value reads in the "Changed from the loadout" tooltip.
 function describe(key, v) {
     if (key === "mode") return engineLabel(v);
-    if (key === "thinking" || key === "html") return v ? "on" : "off";
+    if (key === "thinking" || key === "thinkingCap" || key === "html") return v ? "on" : "off";
     if (key === "banList") return { full: "the full list", short: "the short list", off: "only your phrases" }[v];
     if (key === "length") return v;
     return v === "chomusuke" ? "Chomusuke on" : "Chomusuke off";

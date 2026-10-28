@@ -28,10 +28,10 @@ export function thinkingSection(think, { frame } = {}) {
 }
 
 /** [[formatting]]: the header, then each part that is on, in the preset's old order. */
-export function formattingSection({ dnratio, color, rules, direct, dn, frame } = {}) {
+export function formattingSection({ dnratio, color, rules, direct, frame } = {}) {
     // V11 Тайна: no formatting rules line, its <repetition> says it.
-    if (frame === "v11") return wrapFormatting(filled([dnratio, color, direct, dn]));
-    const parts = filled([dnratio, color, rules, direct, dn]);
+    if (frame === "v11") return wrapFormatting(filled([dnratio, color, direct]));
+    const parts = filled([dnratio, color, rules, direct]);
     return parts.length ? `${FORMATTING_HEADER}\n\n${parts.join("\n")}` : "";
 }
 
@@ -83,7 +83,7 @@ export function thisTurnSection({ dice, image, blocks } = {}) {
 // are sent.
 export const PRESET_SECTION_PARTS = {
     "[[thinking]]": `${THINKING_HEADER}\n[[THINK]]`,
-    "[[formatting]]": `${FORMATTING_HEADER}\n[[DNRATIO]]\n[[COLOR]]\n[[formatting_rules]]\n[[Direct]]\n[[DN]]`,
+    "[[formatting]]": `${FORMATTING_HEADER}\n[[DNRATIO]]\n[[COLOR]]\n[[formatting_rules]]\n[[Direct]]`,
     "[[banned]]": "<banlist>\n[[banlist_builtin]]\n[[banlist]]\n</banlist>",
     "[[reminder]]": `${REMINDER_HEADER}\n[[final_checks]]\n[[reminder_checks]]\n[[user]]`,
 };
@@ -91,7 +91,7 @@ export const PRESET_SECTION_PARTS = {
 // The same, for an engine with the V11 Тайна turn frame: its tags, no headers.
 export const PRESET_SECTION_PARTS_V11 = {
     "[[thinking]]": "[[THINK]]",
-    "[[formatting]]": "<formatting>\n[[DNRATIO]]\n[[COLOR]]\n[[Direct]]\n[[DN]]\n</formatting>",
+    "[[formatting]]": "<formatting>\n[[DNRATIO]]\n[[COLOR]]\n[[Direct]]\n</formatting>",
     "[[banned]]": "<banlist>\n[[banlist_builtin]]\n\n[[banlist]]\n</banlist>",
     "[[reminder]]": `<final_check>\n${FINAL_CHECK_HEAD}\n[[final_checks]]\n[[reminder_checks]]\n[[user]]\n</final_check>`,
 };

@@ -145,6 +145,11 @@ const DEEP_CURRENTS_UPDATE =
     "A Secret changes only when it is exposed or a new one is born. A Thread closes only when the story answers it. " +
     "A small moment is never a reason to rewrite them.";
 
+// Models list a horse or a cart as a character, and "Present" fills up.
+const WHO_COUNTS =
+    "Only characters get a \"+ <Name>\" line: people, or beings the story treats as people, with a mind of their own who speak, plan or act. " +
+    "Animals, mounts, pets, vehicles, objects, furniture and crowds never do; put them in someone's Position or Carrying instead (\"riding a grey mare\", \"leaning on the cart\").";
+
 const LISTS_UPDATE =
     `- Keep at most ${LIST_LIMITS.threads} Threads, ${LIST_LIMITS.seeds} Seeds and ${LIST_LIMITS.timers} Timers. ` +
     "When a list is full and you want to add one, first remove the one that matters least or the one the story has already answered. " +
@@ -181,6 +186,7 @@ function worldInstructions(mode) {
                 "## World State rules",
                 "In <World_State>, record the scene as it stands at the END of your reply, one fact per line, in the exact forms shown. " +
                 "List every character physically present with a \"+ <Name>\" line followed by their fields. " +
+                WHO_COUNTS + " " +
                 "Only what a camera could see goes in Outfit, Position and Condition. " +
                 "Mood, Agenda, Secret and Threads are the story's deep currents: write them as things big enough to carry a character, and the story, through many scenes to come."
             ].join("\n"),
@@ -230,6 +236,7 @@ function worldInstructions(mode) {
             "Arc: <Setup/Escalation/Complication/Crisis/Resolution>",
             "Scene: <Early Simmer/Building/Midpoint Tension/Climax/Breather>",
             "- Use names exactly as they appear in <Current_World_State>. {{user}} is written as {{user}}.",
+            `- ${WHO_COUNTS}`,
             "- Give the complete new value of a changed field. Never write \"unchanged\" or \"same\"; leave unchanged fields out.",
             "- Write each field at most once per character.",
             "- Clothing changes matter: if anyone's clothes changed at all (removed, torn, wet, swapped), write their new Outfit.",

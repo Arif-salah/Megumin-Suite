@@ -102,7 +102,9 @@ const DESCRIPTIONS = {
 
 const COT_TYPES = [
     { id: "v11-voice", label: "CoT V11 Тайна", desc: "Five steps in order: read your turn and the history, decide what each other character does, decide what the turn adds and whether a hidden truth gets a clue, write, then check the draft. Made for V11 Тайна.", isNew: true },
+    { id: "v11-voice-cap", label: "CoT V11 Тайна — Thinking Cap", desc: "The same five steps with a hard ceiling on the thinking: one line of notes per step, and the reply is written only once, in the reply. For models that over-think, like DeepSeek, Kimi, GLM and Qwen.", isNew: true },
     { id: "v11-wr", label: "CoT V11 Тайна · Writers' Room", desc: "The same five steps, worked by the room: the director reads, the psychologist decides what each other character does, the story architect picks what the turn adds, the storyteller and dialogue writer write, and the director checks.", isNew: true },
+    { id: "v11-wr-cap", label: "CoT V11 Тайна · Writers' Room — Thinking Cap", desc: "The room's five steps with a hard ceiling on the thinking: one line of notes per role, and the reply is written only once, in the reply. For models that over-think, like DeepSeek, Kimi, GLM and Qwen.", isNew: true },
     { id: "v11", label: "CoT V11 Тайна Preview", desc: "The writers' room works the turn in order: the director reads the history, the psychologist decides what each character does, the story architect picks what is new and whether a hidden truth gets a clue or comes out, the writers draft, and the director checks it against the rules.", isNew: true },
     { id: "v11-cap", label: "CoT V11 Тайна Preview — Thinking Cap", desc: "The same five steps with a hard ceiling on the thinking: one line of notes per step, and the reply is written only once, in the reply. For models that over-think, like DeepSeek, Kimi, GLM and Qwen.", isNew: true },
     { id: "v10-ukiyo", label: "CoT V10 Ukiyo", desc: "The long-form reasoning built for Ukiyo. Thinks like a novelist muttering before a draft — present tense, a little messy, never a plan. No phases, no checklists, no audits.", isNew: true },
@@ -152,6 +154,8 @@ const LATEST = ["V11", "V10"];
 function parseCot(model) {
     const m = String(model || "");
     if (m.startsWith("cot-v11-cap-")) return { type: "v11-cap", lang: "english" };
+    if (m.startsWith("cot-v11-voice-cap-")) return { type: "v11-voice-cap", lang: "english" };
+    if (m.startsWith("cot-v11-wr-cap-")) return { type: "v11-wr-cap", lang: "english" };
     if (m.startsWith("cot-v11-voice-")) return { type: "v11-voice", lang: "english" };
     if (m.startsWith("cot-v11-wr-")) return { type: "v11-wr", lang: "english" };
     if (m.startsWith("cot-v11-")) return { type: "v11", lang: "english" };
@@ -167,8 +171,8 @@ function parseCot(model) {
 // The frameworks made for a preset; null = any (older and your own presets).
 function cotTypesFor(mode) {
     const m = String(mode || "");
-    if (m === "v11-voice" || m === "v11-deepseek") return ["v11-voice"];
-    if (m === "v11-writers-room") return ["v11-wr"];
+    if (m === "v11-voice" || m === "v11-deepseek") return ["v11-voice", "v11-voice-cap"];
+    if (m === "v11-writers-room") return ["v11-wr", "v11-wr-cap"];
     if (m.includes("v11")) return ["v11", "v11-cap"];
     if (m.includes("v10")) return ["v10-ukiyo", "v10-ukiyo-cap", "v10-shura", "v10-shura-cap"];
     if (m.includes("v6")) return ["v6", "v6-lite"];

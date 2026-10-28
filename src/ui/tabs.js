@@ -35,7 +35,7 @@ import { renderChomusuke } from "./tabs/chomusuke.js";
 // The title is also the global-sync key (core/sync.js), so renaming one needs a
 // line in RENAMED_TABS (core/migrations.js).
 export const tabsUI = [
-    { id: "setup", title: "Model Setup", sub: "Pick your model and use the settings tested for it.", icon: "fa-compass", render: renderModelSetup },
+    { id: "setup", title: "Model Setup", sub: "Optional: the settings I tested for your model.", icon: "fa-compass", render: renderModelSetup },
     { id: "preset", title: "Preset & Thinking", sub: "Choose the preset, how it thinks, and the story's standing rules.", icon: "fa-server", render: renderCoreAndCot },
     { id: "blocks", title: "Blocks", sub: "What goes in the block under each reply, in what order, and how it looks.", icon: "fa-cubes", render: renderBlocksTab },
     { id: "notebook", title: "The Notebook", sub: "The truths the story is hiding, the clues it plants, and when they come out.", icon: "fa-book", render: renderNotebookTab },

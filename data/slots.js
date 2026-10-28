@@ -180,9 +180,6 @@ export const MEGUMIN_SLOT_REGISTRY = [
     { key: "direct", trigger: "[[Direct]]", label: "Direct Language", scope: "shared", group: "systems",
       gate: GATE.addon("direct"), hint: "Blunt anatomical wording instead of euphemism.",
       fallback: () => addonText("direct") },
-    { key: "dn", trigger: "[[DN]]", label: "Dialogue / Narration Tags", scope: "shared", group: "format",
-      gate: GATE.addon("dn"), hint: "Wraps speech and narration in tags so the chat can style them.",
-      fallback: () => addonText("dn") },
     { key: "dialogueColor", trigger: "[[COLOR]]", label: "Dialogue Colours", scope: "shared", group: "format",
       gate: GATE.addon("color"), hint: "Gives each speaker their own colour.",
       fallback: () => addonText("color") },
@@ -314,6 +311,8 @@ export function meguminAllSlotTriggers() {
         "[[npc_dossier2]]", "[[img2]]", "[[dice_rolls]]", "[[npc_updates]]", "[[order]]",
         "[[v9_lean_min]]", "[[v9_lean_max]]", "[[v9_full_min]]", "[[v9_full_max]]"]
         .forEach(t => out.add(t));
+    // Removed add-ons whose tag older presets still carry.
+    out.add("[[DN]]");
     // The bare-bracket spellings an older preset generation used.
     for (let i = 1; i <= 6; i++) out.add(`[prompt${i}]`);
     return [...out];

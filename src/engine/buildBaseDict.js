@@ -850,7 +850,7 @@ export function buildBaseDict(isTokenCount = false) {
     dict["[[thinking]]"] = thinkingSection(dict["[[THINK]]"], { frame });
     dict["[[formatting]]"] = formattingSection({
         dnratio: dict["[[DNRATIO]]"], color: dict["[[COLOR]]"], rules: slotText("[[formatting_rules]]"),
-        direct: dict["[[Direct]]"], dn: dict["[[DN]]"], frame,
+        direct: dict["[[Direct]]"], frame,
     });
     dict["[[banned]]"] = banned;
     dict["[[reminder]]"] = reminderSection({

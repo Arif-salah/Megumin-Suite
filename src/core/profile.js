@@ -75,7 +75,7 @@ export function initProfile() {
     }
 
     const defaults = {
-        mode: "balance",
+        mode: "v11-voice",
         // Which engines have Enhanced Dialogue switched on, keyed by engine id.
         //
         // Per engine rather than one flag, because the switch is drawn inside the
@@ -149,7 +149,7 @@ export function initProfile() {
                 ]
             }
         },
-        model: "cot-v1-english",
+        model: "cot-v11-voice-english",
         userNotes: "",
         userLanguage: "",
         userPronouns: "off",
