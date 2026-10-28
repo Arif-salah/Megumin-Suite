@@ -612,6 +612,23 @@
                 "maxDepth": null
             },
             {
+                "id": "4363fc0f-59c7-409f-b937-e35b207f53d2",
+                "scriptName": "Blocks display marker",
+                "findRegex": "/<Blocks>([\\s\\S]*?)(?:<\\/Blocks\\s*>|$)/gi",
+                "replaceString": "<details class=\"meg-blocks-src\" open><summary><b>Blocks</b></summary>$1</details>",
+                "trimStrings": [],
+                "placement": [
+                    2
+                ],
+                "disabled": false,
+                "markdownOnly": true,
+                "promptOnly": false,
+                "runOnEdit": true,
+                "substituteRegex": 0,
+                "minDepth": null,
+                "maxDepth": null
+            },
+            {
                 "id": "009341e5-6e2d-49ff-ab57-1396f7abf1dc",
                 "scriptName": "thinking color fix",
                 "findRegex": "/<\\/?font[^>]*>(?=(?:[^<]|<(?!\\/?(?:ksc\\??|think(?:ing)?)>))*<\\/(?:ksc\\??|think(?:ing)?)>)/g",
