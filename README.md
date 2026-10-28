@@ -73,7 +73,7 @@ V11 **Тайна**. The headline feature is that your stories can now actually k
   <img src="Screenshots/Screenshot4.png" alt="Screenshot 4" width="200">
 </div>
 
-1. **Open the suite** using the magic wand icon in the top bar. You'll land right on the **Model Setup** tab.
+1. **Open the suite** using the floating magic wand icon in your screen. You'll land right on the **Model Setup** tab.
 2. **Pick your model** and hit **Use this loadout** *(optional)*. This automatically configures the preset variant, thinking style, response length, ban list, and Chomusuke settings. A loadout is just the config I tested for that model. You can skip it and customize everything yourself, or use any engine you want.
 3. **Choose your trackers** in the **Blocks** tab. Starting with two or three is usually the sweet spot.
 4. **Start chatting.** The suite handles the prompt assembly and state tracking quietly in the background.
