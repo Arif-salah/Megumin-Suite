@@ -6,7 +6,7 @@
 
 [![SillyTavern](https://img.shields.io/badge/SillyTavern-1.12%2B-blue.svg?style=for-the-badge)](https://github.com/SillyTavern/SillyTavern)
 [![Version](https://img.shields.io/badge/Version-V11%20Тайна-green.svg?style=for-the-badge)](#)
-[![License](https://img.shields.io/badge/License-CC%20BY--NC--ND%204.0-purple.svg?style=for-the-badge)](https://creativecommons.org/licenses/by-nc-nd/4.0/)
+[![License](https://img.shields.io/badge/License-CC%20BY--NC%204.0-purple.svg?style=for-the-badge)](https://creativecommons.org/licenses/by-nc/4.0/)
 [![Discord](https://img.shields.io/badge/Discord-Join-5865F2.svg?style=for-the-badge&logo=discord&logoColor=white)](https://discord.gg/ansfSn9ed)
 
 [What is it](#what-is-megumin-suite) · [Install](#install) · [Model Setup](#model-setup) · [V11 Тайна](#v11-тайна) · [The Notebook](#the-notebook) · [World State & Blocks](#world-state-and-blocks) · [Chomusuke](#chomusuke) · [Images](#images) · [Support](#support-the-project) · [Discord](https://discord.gg/ansfSn9ed)
