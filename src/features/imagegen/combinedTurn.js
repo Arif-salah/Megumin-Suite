@@ -128,6 +128,7 @@ export async function runCombinedTurn(messageId, type, plan) {
             const exchange = w ? w.exchange : exchangeText(index, String((bToken && bToken.text) || (nToken && nToken.text) || message.mes || ""));
             const common = {
                 notes: w ? renderClerkNotes(w.notes) : "",
+                sheets: w ? w.sheets : "",
                 earlier: earlierStory(index),
                 exchange,
                 world: w ? renderWorldClerkTask(w.mode, { noSecret: w.noSecret }) : null,
@@ -151,7 +152,7 @@ export async function runCombinedTurn(messageId, type, plan) {
                     ...common,
                     engine: "v2",
                     castList: renderCastList(cast, { shot: cfg.shot, method: cfg.method, lookPending: missingLooks.map(m => m.name) }),
-                    sheets: missingLooks.length ? await sheetSourceFor(missingLooks) : "",
+                    sheets: missingLooks.length ? await sheetSourceFor(missingLooks) : common.sheets,
                     imageRules: renderV2Rules({ style: cfg.style, shot: cfg.shot, extra: cfg.extra, method: cfg.method, focus: cfg.focus }),
                     previous: cfg.method === "reference" ? getLastImagePrompt() : null,
                     extras: {
@@ -165,7 +166,7 @@ export async function runCombinedTurn(messageId, type, plan) {
                 built = renderCombinedPrompt({
                     ...common,
                     engine: "classic",
-                    sheets: String(parts.characterSheets || "").replace(/^Use these sheets for what each character looks like:\s*/, ""),
+                    sheets: common.sheets || String(parts.characterSheets || "").replace(/^Use these sheets for what each character looks like:\s*/, ""),
                     imageRules: classicImageRulesBlock(parts)
                 });
             }

@@ -12,7 +12,7 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { nameKey } from "./parse.js";
-import { fieldLabel, presentCast, castDisplayName, LIST_LIMITS } from "./model.js";
+import { fieldLabel, presentCast, castDisplayName, LIST_LIMITS, OFFSCREEN_LIMIT } from "./model.js";
 
 export const PC_FIELDS = ["outfit", "position", "condition", "carrying"];
 export const NPC_FIELDS = ["outfit", "position", "mood", "agenda", "secret"];
@@ -98,7 +98,7 @@ export function renderWorldForPrompt(state, opts = {}) {
     const offscreen = Object.values(state.cast || {}).filter(c => !c.present && c.offscreen);
     if (full && offscreen.length) {
         lines.push("");
-        lines.push("Off-screen");
+        lines.push(`Off-screen (${offscreen.length} of ${OFFSCREEN_LIMIT})`);
         for (const c of offscreen) lines.push(`  ${c.name}: ${c.offscreen}`);
     }
 
@@ -155,6 +155,10 @@ const LISTS_UPDATE =
     "When a list is full and you want to add one, first remove the one that matters least or the one the story has already answered. " +
     "<Current_World_State> numbers each Thread, Seed and Timer, so to remove one you can write its number.";
 
+const OFFSCREEN_UPDATE =
+    `- Keep at most ${OFFSCREEN_LIMIT} Off-screen lines. When ${OFFSCREEN_LIMIT} are listed and you want to add one ` +
+    "(with Offscreen: or \"- <Name>: …\"), first remove the one that matters least with Offscreen-: <Name>.";
+
 // While the Author's Notebook is on (plan 010), hidden things live in the
 // notebook only, so World State stops asking for a Secret, and for Seeds: the
 // notebook's clues are the foreshadowing (plan 020).
@@ -206,7 +210,7 @@ function worldInstructions(mode) {
                 "[NPC Name].Agenda: [the big goal that drives them through the story, e.g. \"earn back her family's name\", never a small errand like \"order a drink\"]",
                 "[NPC Name].Secret: [something that would change how others see them, or shift the story, if it came out]",
                 "(repeat \"+ [NPC Name]\" and its fields for each character present)",
-                "Offscreen: [NPC Name] = [where they are, what they are doing]",
+                `Offscreen: [NPC Name] = [where they are, what they are doing]   (at most ${OFFSCREEN_LIMIT})`,
                 `Thread+: [a major tension or open question the story will have to answer, at most ${LIST_LIMITS.threads} lines in all]`,
                 `Seed+: [foreshadowing detail, what it hints at; at most ${LIST_LIMITS.seeds}]`,
                 `Timer+: [consequence]: [turns remaining]   (at most ${LIST_LIMITS.timers})`,
@@ -229,6 +233,7 @@ function worldInstructions(mode) {
             "+ <Name>                                someone enters the scene; follow with their Outfit, Position, Mood, Agenda, Secret lines",
             "- <Name>: <where they went or what they are doing now>",
             "Offscreen: <Name> = <where they are / what they are doing>",
+            "Offscreen-: <Name>                      remove their off-screen line",
             "Thread+: <new tension>        Thread-: <its number, or the resolved tension as written>",
             "Seed+: <foreshadowing detail>   Seed-: <its number, or the paid-off seed>",
             "Timer+: <consequence>: <turns left>   to count a timer down, write it again with the new count; it replaces the old one",
@@ -243,6 +248,7 @@ function worldInstructions(mode) {
             "- An Outfit is the complete visible outfit, top to bottom, with colours and materials (\"grey hoodie, black joggers, white socks\"), never a summary like \"casual clothes\" or \"loungewear\".",
             DEEP_CURRENTS_UPDATE,
             LISTS_UPDATE,
+            OFFSCREEN_UPDATE,
             "- If nothing changed, write exactly: No changes"
         ].join("\n"),
         template: "<World_Update>\n[change lines, or: No changes]\n</World_Update>"
@@ -313,6 +319,7 @@ export function describeWorldChange(ch, pcLabel = "{{user}}") {
         case "enter": return `${who(ch.who)} entered`;
         case "leave": return `${who(ch.who)} left${ch.where ? `: ${ch.where}` : ""}`;
         case "offscreen": return `${ch.who ? who(ch.who) + " " : ""}off-screen: ${ch.value}`;
+        case "offscreenRemove": return `${who(ch.who)} off-screen line removed`;
         case "forget": return `${who(ch.who)} removed`;
         case "merge": return `${who(ch.who)} is ${who(ch.into)}`;
         case "pcname": return `Player character: ${ch.name}`;
@@ -361,13 +368,22 @@ export function renderClerkNotes(notes) {
         : "<Current_World_State>\n(Nothing has been noted about this story yet.)\n</Current_World_State>";
 }
 
-export function renderWorldExtractPrompt({ notes, exchange, mode, noSecret = false }) {
+/**
+ * @param {{ notes: string, exchange: string, mode: string, noSecret?: boolean, sheets?: string }} a
+ *   sheets — the character card(s) and the persona, so the clerk knows who the people are
+ */
+export function renderWorldExtractPrompt({ notes, exchange, mode, noSecret = false, sheets = "" }) {
     const task = renderWorldClerkTask(mode, { noSecret });
+    const s = String(sheets || "").trim();
     const system =
         "You are a continuity clerk for an ongoing roleplay. You read the latest exchange and note what it changed: " +
         "the physical scene, who is present and how they look, and the story's slow deep currents. " +
-        "You never write story, never explain, and never add facts the exchange does not state or clearly show.";
+        (s
+            ? "The character sheets tell you who the characters and {{user}} are; use them to understand the people. " +
+              "You never write story, never explain, and never add facts that neither the exchange nor the sheets give you."
+            : "You never write story, never explain, and never add facts the exchange does not state or clearly show.");
     const user = [
+        ...(s ? [`<Character_Sheets>\n${s}\n</Character_Sheets>`, ""] : []),
         renderClerkNotes(notes),
         "",
         "<Latest_Exchange>",

@@ -35,6 +35,10 @@ const LIST_LABEL = { threads: "Thread", seeds: "Seed", timers: "Timer" };
 // oldest items, so a model that only ever adds can't bury the story in them.
 export const LIST_LIMITS = { threads: 3, seeds: 3, timers: 2 };
 
+// How many off-screen lines are kept. Past it, the oldest lines go; the
+// character and their fields stay, so they come back as they were.
+export const OFFSCREEN_LIMIT = 4;
+
 // "Seed-: 2" / "#2" / "Seed 2": an item by its number in <Current_World_State>,
 // which lists them as they stood before the reply.
 const LIST_REF = /^(?:#|no\.?\s*|(?:thread|seed|timer)s?\s*#?)?(\d{1,2})\.?$/i;
@@ -137,7 +141,10 @@ function adoptAliases(state, entry, aliases) {
         const twin = state.cast[ak];
         if (twin && twin !== entry) {
             entry.fields = { ...twin.fields, ...entry.fields };
-            if (!entry.offscreen && twin.offscreen) entry.offscreen = twin.offscreen;
+            if (!entry.offscreen && twin.offscreen) {
+                entry.offscreen = twin.offscreen;
+                entry.offscreenAt = twin.offscreenAt;
+            }
             if (twin.present) entry.present = true;
             entry.lastSeenSeq = Math.max(entry.lastSeenSeq || 0, twin.lastSeenSeq || 0);
             for (const x of twin.aliases || []) if (!entry.aliases.some(y => nameKey(y) === nameKey(x))) entry.aliases.push(x);
@@ -194,6 +201,11 @@ export function applyWorldChanges(prev, parsed, ctx = {}) {
     const note = (label, before, after) => {
         if (before !== after) applied.push({ label, before: before || "", after: after || "" });
     };
+
+    // When an off-screen line was written, so the oldest go first when there
+    // are too many. Lines written in the same reply keep the order they were written in.
+    let tick = 0;
+    const offscreenStamp = () => seq + (++tick) / 1e6;
 
     // A full snapshot describes who is present now: everyone else has left.
     if (parsed.kind === "snapshot") {
@@ -296,7 +308,10 @@ export function applyWorldChanges(prev, parsed, ctx = {}) {
                 const wasPresent = entry.present;
                 entry.present = false;
                 entry.lastSeenSeq = seq;
-                if (ch.where) entry.offscreen = ch.where;
+                if (ch.where) {
+                    entry.offscreen = ch.where;
+                    entry.offscreenAt = offscreenStamp();
+                }
                 if (wasPresent) note(`${entry.name} left`, "present", ch.where || "gone");
                 break;
             }
@@ -323,6 +338,7 @@ export function applyWorldChanges(prev, parsed, ctx = {}) {
                 if (fromIsNewer) {
                     to.present = from.present;
                     to.offscreen = from.offscreen || "";
+                    to.offscreenAt = from.offscreenAt;
                 }
                 to.lastSeenSeq = Math.max(to.lastSeenSeq || 0, from.lastSeenSeq || 0);
                 to.aliases = to.aliases || [];
@@ -357,7 +373,19 @@ export function applyWorldChanges(prev, parsed, ctx = {}) {
                     note(`${entry.name} left`, "present", value);
                 }
                 entry.offscreen = value;
+                entry.offscreenAt = offscreenStamp();
                 note(`${entry.name} · Off-screen`, before, value);
+                break;
+            }
+            case "offscreenRemove": {
+                // "Offscreen-: Wiz": her off-screen line goes, she and her fields stay.
+                const entry = state.cast[resolveCastKey(state, ch.who)];
+                if (!entry || !entry.offscreen) {
+                    notes.push(`Could not find an off-screen line to remove for "${ch.who}"`);
+                    break;
+                }
+                note(`${entry.name} · Off-screen`, entry.offscreen, "");
+                entry.offscreen = "";
                 break;
             }
             case "list": {
@@ -421,6 +449,16 @@ export function applyWorldChanges(prev, parsed, ctx = {}) {
             while (list.length > LIST_LIMITS[key]) {
                 const gone = listItems[key] ? list.pop() : list.shift();
                 note(`${LIST_LABEL[key]} − (list full)`, gone, "");
+            }
+        }
+        const away = Object.values(state.cast).filter(c => !c.present && c.offscreen);
+        if (away.length > OFFSCREEN_LIMIT) {
+            // A line from before the stamp counts from when they were last seen.
+            const at = c => c.offscreenAt ?? c.lastSeenSeq ?? 0;
+            away.sort((a, b) => at(a) - at(b));
+            for (const c of away.slice(0, away.length - OFFSCREEN_LIMIT)) {
+                note(`${c.name} · Off-screen (list full)`, c.offscreen, "");
+                c.offscreen = "";
             }
         }
     }

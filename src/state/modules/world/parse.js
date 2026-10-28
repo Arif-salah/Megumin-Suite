@@ -276,6 +276,15 @@ function parseLine({ t, bullet }, ctx, out) {
         }
     }
 
+    // ── "Offscreen-: Wiz": her off-screen line goes
+    m = t.match(/^off[\s-]?screen\s*[-–]\s*:?\s*(.+)$/i);
+    if (m) {
+        ctx.who = null;
+        const cn = cleanName(m[1].split(/\s*(?:=|:|—|–|\s-\s)\s*/)[0]);
+        if (!cn || isPlaceholder(m[1]) || skipValue(m[1])) return true;
+        return push(out, { type: "offscreenRemove", who: cn.name });
+    }
+
     // ── List ops: "Thread+: text" / "Seeds - : text"
     m = t.match(/^([\p{L}\s]{3,24}?)\s*([+\-–])\s*:?\s*(.+)$/u);
     if (m && LIST_LABELS[normLabel(m[1])]) {

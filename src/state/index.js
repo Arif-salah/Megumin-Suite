@@ -15,6 +15,7 @@ import { runWithChomusuke } from "../engine/tasks.js";
 import { warnChomusuke, answerKind } from "../engine/chomusukeNotice.js";
 import { setActiveWorldExtractRequest } from "../core/activeRequests.js";
 import { localProfile } from "../core/state.js";
+import { buildCharacterSheets } from "../features/imagegen/classic/prompt.js";
 import { createStateStore } from "./store.js";
 import { worldModule } from "./modules/world/index.js";
 import { bondsModule, sheetModule, chatterModule, trackerModule, cyoaModule } from "./modules/stats/index.js";
@@ -380,7 +381,7 @@ export function worldExtractMessage(index, { force = false } = {}) {
             const mode = isEmptyWorld(before) ? "bootstrap" : "update";
             const noSecret = notebookEnabled();
             const notes = mode === "bootstrap" ? "" : sub(renderWorldForPrompt(before, { detail: "full", noSecret }));
-            const built = renderWorldExtractPrompt({ notes, exchange: exchangeFor(index, text, mode), mode, noSecret });
+            const built = renderWorldExtractPrompt({ notes, exchange: exchangeFor(index, text, mode), mode, noSecret, sheets: worldSheets() });
             req = { system: sub(built.system), user: sub(built.user), prefill: built.prefill, job: "world" };
             // The marker is set only once this job has the worker. Chomusuke runs
             // are queued; set while waiting, it would hijack whatever generation
@@ -469,7 +470,17 @@ export function worldReadInputs(token) {
     const mode = isEmptyWorld(before) ? "bootstrap" : "update";
     const noSecret = notebookEnabled();
     const notes = mode === "bootstrap" ? "" : sub(renderWorldForPrompt(before, { detail: "full", noSecret }));
-    return { mode, notes, noSecret, exchange: exchangeFor(token.index, token.text, mode) };
+    return { mode, notes, noSecret, exchange: exchangeFor(token.index, token.text, mode), sheets: worldSheets() };
+}
+
+// The card(s) (Description and Personality) and the persona, sent with every
+// World State read so Chomusuke knows who the people are.
+function worldSheets() {
+    try {
+        return buildCharacterSheets({ personality: true }).replace(/^Use these sheets for what each character looks like:\s*/, "").trim();
+    } catch (e) {
+        return "";
+    }
 }
 
 function findTokenMessage(token) {

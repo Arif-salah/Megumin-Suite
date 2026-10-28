@@ -306,7 +306,12 @@ export function renderCombinedPrompt(a) {
             notebook ? notebook.task.template : ""
         ].filter(Boolean).join("\n")
     ].filter(s => String(s || "").trim()).join("\n\n");
-    return { system: combinedSystem({ world: Boolean(world), image, blocks: Boolean(blocks), notebook: notebook ? (notebook.setup ? "setup" : "read") : false }), user, prefill: world ? `<${tag}>\n` : "" };
+    let system = combinedSystem({ world: Boolean(world), image, blocks: Boolean(blocks), notebook: notebook ? (notebook.setup ? "setup" : "read") : false });
+    // With sheets in the call, facts from them are allowed too.
+    if (String(a.sheets || "").trim()) {
+        system = system.replace("facts the exchange does not state or clearly show", "facts that neither the exchange nor the character sheets give you");
+    }
+    return { system, user, prefill: world ? `<${tag}>\n` : "" };
 }
 
 // The system line for whatever the call does. World State + image keeps the
