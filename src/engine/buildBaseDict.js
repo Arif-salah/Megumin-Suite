@@ -931,7 +931,9 @@ function buildCurrentInfo(worldNotes) {
     if (notebook) sections.push(notebook);
     if (parts.bonds) sections.push(`<Bonds_Now>\n${parts.bonds}\n</Bonds_Now>`);
     if (parts.sheet) sections.push(`<Character_Sheet_Now>\n${parts.sheet}\n</Character_Sheet_Now>`);
-    if (parts.chatter) sections.push(`<Last_Inner_Chatter>\n${parts.chatter}\n</Last_Inner_Chatter>`);
+    // Shown so the next one doesn't repeat it. "Carry these values forward" made
+    // models copy it and add to it, so it grew every turn.
+    if (parts.chatter) sections.push(`<Last_Inner_Chatter>\n<!-- The private thoughts from the last turn. Write new ones for this turn: never copy, repeat or add to these. -->\n${parts.chatter}\n</Last_Inner_Chatter>`);
     if (parts.tracker) sections.push(`<Last_Story_Tracker>\n${parts.tracker}\n</Last_Story_Tracker>`);
     if (!sections.length) return "";
     return [
