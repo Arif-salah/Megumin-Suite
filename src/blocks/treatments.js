@@ -610,12 +610,23 @@ export function renderWorldState(parsed) {
 // A speaker marker: a short name in caps or title case, followed by a colon.
 // Anchored to a line start OR to the end of a sentence, because the model
 // writes the whole exchange as one paragraph as often as it writes lines.
-const CHAT_SPEAKER = /(?:^|(?<=[.!?"”'’)\]])\s+|\n)([\p{Lu}][\p{L}\p{N}'’.\- ]{1,28}?)\s*:\s+/gu;
+const CHAT_SPEAKER = /(?:^|(?<=[.!?"”'’)\]])\s+|\n)([\p{Lu}][\p{L}\p{N}'’.\- ]{1,44}?)\s*:\s+/gu;
 
 // Words that end in a colon but are not people. Without this, "Note:" and
 // "Example:" — both of which appear in the template's own instructions —
 // become speakers with a bubble each.
 const CHAT_NOT_A_NAME = /^(note|example|tone|edit|ooc|warning|summary|context|rules?|output|format)$/i;
+
+// The small words inside a long name: "Lord Vance of House Morro".
+const NAME_PARTICLE = /^(of|the|de|da|di|del|della|du|des|van|von|der|den|la|le|al|el|bin|ibn|y|zu)$/i;
+
+// Up to four words, as before; a longer one only when every word is
+// capitalised or a particle, so a sentence ending in a colon stays text.
+function chatSpeakerName(name) {
+    const words = name.split(" ");
+    if (words.length <= 4) return true;
+    return words.length <= 7 && words.every(w => NAME_PARTICLE.test(w) || /^[\p{Lu}]/u.test(w));
+}
 
 export function parseChatter(body, opts = {}) {
     const text = String(body || "").trim();
@@ -639,7 +650,7 @@ export function parseChatter(body, opts = {}) {
     let m;
     while ((m = CHAT_SPEAKER.exec(text)) !== null) {
         const name = plain(m[1]).replace(/\s+/g, " ").trim();
-        if (CHAT_NOT_A_NAME.test(name) || name.split(" ").length > 4) continue;
+        if (CHAT_NOT_A_NAME.test(name) || !chatSpeakerName(name)) continue;
 
         const chunk = text.slice(cursor, m.index).trim();
         if (last) last.text = chunk;
