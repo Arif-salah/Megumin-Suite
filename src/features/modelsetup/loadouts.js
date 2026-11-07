@@ -53,14 +53,12 @@ export const SETTINGS = [
             if (v !== "off") p.banListShort = v === "short";
         }
     },
+    { key: "html", label: "Immersive HTML", tab: "addons", ...addonRow("html") },
     {
-        key: "html", label: "Immersive HTML", tab: "addons",
-        read: p => Array.isArray(p.addons) && p.addons.includes("html"),
-        write: (p, on) => {
-            const list = (Array.isArray(p.addons) ? p.addons : []).filter(id => id !== "html");
-            if (on) list.push("html");
-            p.addons = list;
-        }
+        // Only the Gemini loadouts have this row; using any other loadout
+        // switches it off (offElsewhere).
+        key: "geminiJB", label: "Gemini JB", tab: "addons", ...addonRow("gemini_jb"), offElsewhere: true,
+        desc: "Helps Gemini get through gritty and heavy NSFW scenes without cutting the reply off."
     },
     {
         // Who writes what comes after the story: the blocks, World State, the
@@ -85,6 +83,18 @@ export const SETTINGS = [
         }
     }
 ];
+
+// A row that switches one add-on (Language & rules tab) on or off.
+function addonRow(id) {
+    return {
+        read: p => Array.isArray(p.addons) && p.addons.includes(id),
+        write: (p, on) => {
+            const list = (Array.isArray(p.addons) ? p.addons : []).filter(a => a !== id);
+            if (on) list.push(id);
+            p.addons = list;
+        }
+    };
+}
 
 // The blocks Chomusuke can write (the Chomusuke tab's block switches).
 const BLOCK_IDS = ["bonds", "sheet", "chatter", "cyoa"];
@@ -132,7 +142,15 @@ export const LOADOUTS = [
             { tone: "gold", text: "<b>Gemini 4:</b> keep custom thinking off. <b>Gemini 3.1 Pro and 2.5 Pro:</b> turn custom thinking on. Turn the prefill on only if you get refusals." },
             CHOMUSUKE_OPTIONAL
         ],
-        settings: { mode: "v11-voice", thinking: false, length: LENGTH_FLEXIBLE, banList: "full", chomusuke: "story" }
+        settings: { mode: "v11-voice", thinking: false, length: LENGTH_FLEXIBLE, banList: "full", geminiJB: true, chomusuke: "story" }
+    },
+    {
+        id: "gemini-flash", name: "Gemini Flash", icon: "fa-gem", models: "Gemini 3.5 – 3.8 Flash",
+        why: "Set up like Gemini Pro, with custom thinking on: Flash plans the reply better when it writes its thinking out.",
+        notes: [
+            { tone: "gold", chomusuke: true, text: "<b>Gemini 3.8 Flash writes the blocks fine</b>, but in heavy NSFW scenes it can cut them off. If that happens, turn Chomusuke on below and give it another model to write the blocks." }
+        ],
+        settings: { mode: "v11-voice", thinking: true, thinkingCap: false, length: LENGTH_FLEXIBLE, banList: "full", geminiJB: true, chomusuke: "story" }
     },
     {
         id: "claude", name: "Claude", icon: "fa-feather", models: "Claude Opus 5.5",
@@ -161,23 +179,49 @@ export const LOADOUTS = [
 ];
 
 export const COMING_SOON = [
-    { name: "Gemini Flash", icon: "fa-gem", models: "Gemini 3.5 – 3.8 Flash" },
     { name: "Overthinkers", icon: "fa-hourglass-half", models: "Kimi K3, Xiaomi MiMo V2.6" },
     { name: "Local", icon: "fa-house-laptop", models: "Gemma 4 31B, Qwen 3.8 27B" }
 ];
 
 export const loadoutById = id => LOADOUTS.find(l => l.id === id);
 
+/** What Use this loadout writes: the loadout's settings, plus off for every
+ *  offElsewhere row it doesn't have (Gemini JB on a non-Gemini loadout). */
+export function loadoutWrites(settings) {
+    const off = SETTINGS.filter(s => s.offElsewhere && !(s.key in settings)).map(s => [s.key, false]);
+    return { ...settings, ...Object.fromEntries(off) };
+}
+
 /** Writes a loadout's settings into one profile (or `settings`, the
  *  loadout's settings as changed on the page before using it). Containers a
  *  profile lacks are made. `skipGlobal`: leave out the rows stored once for
  *  every character (written through the profile on screen). */
 export function applyLoadout(p, loadout, ctx, settings = loadout.settings, { skipGlobal = false } = {}) {
-    for (const [key, value] of Object.entries(settings)) {
+    for (const [key, value] of Object.entries(loadoutWrites(settings))) {
         const s = settingFor(key);
         if (!(skipGlobal && s.global)) s.write(p, value, ctx);
     }
     p.loadout = loadout.id;
+}
+
+/** What Use this loadout would change on one profile, before it runs (plan
+ *  020): [{ key, label, from, to }] in the loadout's order, values as the
+ *  rows read them; plus { key: "style" } when the preset brings its own
+ *  writing style. Empty: nothing would change. The profile is not touched. */
+export function loadoutChanges(p, loadout, ctx, settings = loadout.settings) {
+    const after = JSON.parse(JSON.stringify(p));
+    applyLoadout(after, loadout, ctx, settings);
+    const out = [];
+    for (const key of Object.keys(loadoutWrites(settings))) {
+        const s = settingFor(key);
+        const from = s.read(p, ctx);
+        const to = s.read(after, ctx);
+        if (from !== to) out.push({ key, label: s.label, from, to });
+    }
+    if ((after.activeStyleId || "") !== (p.activeStyleId || "")) {
+        out.push({ key: "style", label: "Writing style", from: p.activeStyleId || "", to: after.activeStyleId || "" });
+    }
+    return out;
 }
 
 /** The keys whose value differs from the loadout this profile last used.

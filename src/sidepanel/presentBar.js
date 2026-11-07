@@ -348,7 +348,7 @@ export function openCharacterSheet(name) {
 
     const bookBtn = banked
         ? `<button class="meg-pb-sheet-book-btn" id="meg-pb-sheet-book-btn">
-              <i class="fa-solid fa-book-open"></i> Open in NPC Book
+              <i class="fa-solid fa-book-open"></i> Open in NPC Bank
            </button>`
         : `<div class="meg-pb-sheet-unbanked">
               <i class="fa-solid fa-circle-info"></i>

@@ -13,6 +13,7 @@ import {
     refreshSidePanel, refreshPresentBar,
 } from "../../sidepanel/panel.js";
 import { SECTION_REGISTRY } from "../../sidepanel/sections.js";
+import { confirmPopup } from "../controls.js";
 
 export function renderSidePanelTab(c) {
     c.empty();
@@ -213,7 +214,7 @@ export function renderSidePanelTab(c) {
                     <div class="label">Reset all side-panel settings</div>
                     <div class="desc">Wipes every setting on this tab back to defaults. Debug console handle: <code>window.LukaSuite</code></div>
                 </div>
-                <div class="control"><button id="megsp_reset_all" class="ps-modern-btn secondary" style="color: #ef4444; border-color: rgba(239,68,68,0.3);"><i class="fa-solid fa-trash"></i> Reset all</button></div>
+                <div class="control"><button id="megsp_reset_all" class="ps-modern-btn secondary" style="color: var(--c-danger, #ef4444); border-color: rgba(239,68,68,0.3);"><i class="fa-solid fa-trash"></i> Reset all</button></div>
             </div>
         </div>
     `);
@@ -328,8 +329,8 @@ export function renderSidePanelTab(c) {
         refreshPresentBar();
         toastr.success("Side panel refreshed", "Megumin Suite");
     });
-    c.find("#megsp_reset_all").on("click", function () {
-        if (!confirm("Reset ALL side-panel settings to defaults?")) return;
+    c.find("#megsp_reset_all").on("click", async function () {
+        if (!(await confirmPopup("Reset the side panel?", "Every side panel setting goes back to the defaults.", { ok: "Reset" }))) return;
         delete extension_settings["Megumin-Suite"].sidePanel;
         delete extension_settings["Megumin-Suite"].presentBar;
         saveSettingsDebounced();

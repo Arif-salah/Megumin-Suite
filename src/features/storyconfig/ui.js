@@ -12,7 +12,8 @@ import { engineLocksStyle, lockedStyleIdFor } from "../../core/engines.js";
 import { getCharacterKey } from "../../core/keys.js";
 import { saveProfileToMemory, saveProfileDebounced } from "../../core/profile.js";
 import { fireRefreshHook, REFRESH } from "../../core/refreshHooks.js";
-import { meguminStoryConfigSyncs, meguminSetStoryConfigSyncs, meguminStoryConfigHostSynced } from "../../core/sync.js";
+import { meguminStoryConfigSyncs, meguminSetStoryConfigSyncs, meguminStoryConfigHostSynced, scopeNoun } from "../../core/sync.js";
+import { switchRow, confirmPopup, askName } from "../../ui/controls.js";
 import { hardcodedLogic } from "../../../data/database.js";
 import { escapeHtmlAttr, fieldPlaceholder } from "../../utils/html.js";
 import { cleanAIOutput } from "../../engine/chatText.js";
@@ -25,54 +26,38 @@ import { storyConfigFields, getAllConfigPresets, applyStoryConfigDefaults, isSta
 
 // Builds the Config pane. Text fields save on input (debounced) so typing never re-renders
 // and never steals focus; only structural changes re-render the whole tab.
-// The "does Story Config travel with the tab's Global switch" row.
-//
-// Split out because it redraws itself on click rather than re-rendering the whole
-// section: the section holds text inputs, and re-rendering while somebody may be
-// mid-edit would steal focus for a control that has nothing to do with them.
+// "Keep Story Config with this character": Story Config is drawn in Preset &
+// Thinking, so it goes to every character with that tab unless this is on.
+// Redraws only itself on click: the section holds text inputs, and redrawing
+// them mid-edit would steal focus.
 function buildConfigSyncRow() {
     const row = $(`<div class="cfg-sync-row"></div>`);
 
     const paint = () => {
-        const on = meguminStoryConfigSyncs();
+        const noun = scopeNoun();
+        const keep = !meguminStoryConfigSyncs();
         const hostOn = meguminStoryConfigHostSynced();
-        row.html(`
-            <div class="cfg-sync-text">
-                <span class="cfg-sync-label"><i class="fa-solid fa-earth-americas"></i> Share Story Config with every character</span>
-                <span class="cfg-sync-desc">${hostOn
-                    ? (on
-                        ? "These fields are copied to every character along with the rest of this tab."
-                        : "The engine and CoT choice still go everywhere. These fields stay with this character.")
-                    : "Only applies once this tab's <strong>Global</strong> switch is on. It is off, so nothing is being copied anywhere."}</span>
-            </div>
-            <button class="ws-btn-small cfg-sync-btn" id="cfg_sync_toggle"
-                    style="${hostOn
-                        ? (on ? "color:#10b981; border-color:rgba(16,185,129,0.45);" : "color:var(--gold); border-color:rgba(245,158,11,0.3);")
-                        : "opacity:0.55;"}">
-                <i class="fa-solid fa-earth-americas"></i> ${on ? "On" : "Off"}
-            </button>`);
+        row.empty().append(switchRow({
+            label: `<i class="fa-solid fa-user"></i> Keep Story settings with this ${noun}`,
+            desc: !hostOn
+                ? `Only matters when this tab is set to "Every ${noun}" (top bar). It is set to "This ${noun} only", so nothing is copied.`
+                : keep
+                    ? `Genre, POV, pace and the rest stay with this ${noun}. The preset and thinking still go to every ${noun}.`
+                    : `Story settings go to every ${noun} with the rest of this tab.`,
+            on: keep,
+            disabled: !hostOn,
+            onChange: on => {
+                meguminSetStoryConfigSyncs(!on);
+                // Sharing it again has to catch up: the others missed every change
+                // made while it was kept here, so one save copies the current values.
+                // Keeping it copies nothing and leaves the others as they are.
+                if (!on) saveProfileToMemory();
+                paint();
+            }
+        }));
     };
 
     paint();
-
-    row.on("click", "#cfg_sync_toggle", () => {
-        const next = !meguminStoryConfigSyncs();
-        meguminSetStoryConfigSyncs(next);
-        paint();
-        // Turning it back on has to catch up: the other profiles missed every
-        // change made while it was off, so one save re-broadcasts the current
-        // values. Turning it off broadcasts nothing and leaves what is already
-        // out there alone — undoing a share nobody asked to undo would be worse.
-        if (next) saveProfileToMemory();
-        if (!meguminStoryConfigHostSynced()) {
-            toastr.info("Saved. It takes effect when this tab's Global switch is on.", "Megumin Suite");
-        } else {
-            toastr.success(next
-                ? "Story Config now travels with the other settings on this tab."
-                : "Story Config stays with this character now.", "Megumin Suite");
-        }
-    });
-
     return row;
 }
 
@@ -83,21 +68,20 @@ export function buildStoryConfigSection() {
     applyStoryConfigDefaults(cfg);
     const sec = $(`<div class="ws-section" id="sec-config"></div>`);
 
-    sec.append(`<h3 style="margin-top: 0; color: var(--gold); font-size: 1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;"><i class="fa-solid fa-sliders"></i> Story Config</h3>`);
+    sec.append(`<h3 style="margin-top: 0; color: var(--gold); font-size: 1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;"><i class="fa-solid fa-sliders"></i> Story settings</h3>`);
 
     // No master toggle: the block is always injected. Anything left on Preset default
     // still emits no line, so "off" is expressed per field rather than for the whole
     // block -- which is what people were reaching for the toggle to do anyway.
     sec.append(`<div class="cfg-master-desc" style="margin-bottom: 10px;">Standing settings for the whole story. Anything left on preset default is left to your preset.</div>`);
 
-    // ── GLOBAL SYNC OPT-OUT ──
+    // ── KEEP WITH THIS CHARACTER ──
     //
-    // These fields sit on the PRESETS & COT tab, so the tab's Global switch
-    // carries them along with the engine and CoT choice. That bundles the setup
-    // (which people do want everywhere) with the story itself (which they often
-    // do not — a horror chat and a slice-of-life chat want different genres).
-    // The button is drawn greyed when the host tab is not global at all, because
-    // then nothing broadcasts and this decides nothing.
+    // These fields sit on the Preset & Thinking tab, so its scope carries them
+    // along with the engine and thinking choice. That bundles the setup (which
+    // people do want everywhere) with the story itself (which they often do
+    // not — a horror chat and a slice-of-life chat want different genres).
+    // Greyed while the tab is "This character only": then nothing is copied.
     sec.append(buildConfigSyncRow());
 
     // ── PRESET BAR ──
@@ -117,8 +101,8 @@ export function buildStoryConfigSection() {
         <div class="cfg-preset-bar">
             <select id="cfg_preset_select" class="ps-modern-input" style="flex: 1; min-width: 160px; cursor: pointer;">${presetOpts}</select>
             <button class="ws-btn-small" id="cfg_preset_load"><i class="fa-solid fa-download"></i> Load</button>
-            <button class="ws-btn-small" id="cfg_preset_save" style="color:#10b981; border-color: rgba(16,185,129,0.35);"><i class="fa-solid fa-floppy-disk"></i> Save Current</button>
-            <button class="ws-btn-small" id="cfg_preset_delete" style="color:#ef4444; border-color: rgba(239,68,68,0.3);"><i class="fa-solid fa-trash"></i></button>
+            <button class="ws-btn-small" id="cfg_preset_save" style="color:var(--c-live, #10b981); border-color: rgba(16,185,129,0.35);"><i class="fa-solid fa-floppy-disk"></i> Save Current</button>
+            <button class="ws-btn-small" id="cfg_preset_delete" style="color:var(--c-danger, #ef4444); border-color: rgba(239,68,68,0.3);"><i class="fa-solid fa-trash"></i></button>
             <button class="ws-btn-small" id="cfg_reset_all" style="margin-left:auto;"><i class="fa-solid fa-rotate-left"></i> Reset All</button>
         </div>
     `);
@@ -135,9 +119,9 @@ export function buildStoryConfigSection() {
         toastr.success(`Loaded "${p.name}".`);
     });
 
-    presetBar.find("#cfg_preset_save").on("click", () => {
-        const name = prompt("Name this config preset:");
-        if (!name || !name.trim()) return;
+    presetBar.find("#cfg_preset_save").on("click", async () => {
+        const name = await askName("Name these story settings", { html: "Saved so you can load them in any chat.", ok: "Save" });
+        if (!name) return;
         const values = {};
         storyConfigFields.forEach(f => { values[f.key] = cfg[f.key] || ""; });
         extension_settings[extensionName].configPresets.push({
@@ -151,21 +135,21 @@ export function buildStoryConfigSection() {
         toastr.success(`Saved "${name.trim()}".`);
     });
 
-    presetBar.find("#cfg_preset_delete").on("click", () => {
+    presetBar.find("#cfg_preset_delete").on("click", async () => {
         const pid = presetBar.find("#cfg_preset_select").val();
         if (!pid) { toastr.info("Pick a preset first."); return; }
         const p = getAllConfigPresets().find(x => x.id === pid);
         if (!p) return;
-        if (p.builtin) { toastr.warning("Built-in presets can't be deleted."); return; }
-        if (!confirm(`Delete the preset "${p.name}"?`)) return;
+        if (p.builtin) { toastr.warning("Built-in story settings can't be deleted."); return; }
+        if (!(await confirmPopup(`Delete "${p.name}"?`, "These saved story settings are deleted. The ones in use now don't change.", { ok: "Delete" }))) return;
         extension_settings[extensionName].configPresets = extension_settings[extensionName].configPresets.filter(x => x.id !== pid);
         saveSettingsDebounced();
         fireRefreshHook(REFRESH.SWITCH_TAB);
         toastr.success("Preset deleted.");
     });
 
-    presetBar.find("#cfg_reset_all").on("click", () => {
-        if (!confirm("Set every setting back to preset default?")) return;
+    presetBar.find("#cfg_reset_all").on("click", async () => {
+        if (!(await confirmPopup("Reset every story setting?", "Every field goes back to the preset's default.", { ok: "Reset" }))) return;
         storyConfigFields.forEach(f => { cfg[f.key] = ""; });
         applyStoryConfigDefaults(cfg);
         saveProfileToMemory();
@@ -402,9 +386,9 @@ export function renderStoryConfig(c) {
     const dnPanel = $(`
         <div style="margin-bottom: 14px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-                <span style="font-size: 0.75rem; font-weight: 700; color: var(--text-main);"><i class="fa-solid fa-scale-balanced" style="color: #3b82f6; margin-right: 5px;"></i> DN Ratio</span>
+                <span style="font-size: 0.75rem; font-weight: 700; color: var(--text-main);"><i class="fa-solid fa-scale-balanced" style="color: var(--c-info, #3b82f6); margin-right: 5px;"></i> DN Ratio</span>
                 <div class="ps-toggle-card ${isDNR ? 'active' : ''}" id="dnr_toggle_sb" style="padding: 2px; min-width: 36px; background: transparent; border-color: ${isDNR ? '#10b981' : 'var(--border-color)'}; cursor: pointer; border-radius: 8px;">
-                    <div class="ps-switch" style="transform: scale(0.65); ${isDNR ? 'background: #10b981;' : ''}"></div>
+                    <div class="ps-switch" style="transform: scale(0.65); ${isDNR ? 'background: var(--c-live, #10b981);' : ''}"></div>
                 </div>
             </div>
             <div id="dnr_body_sb" style="display: ${isDNR ? 'block' : 'none'};">
@@ -412,11 +396,11 @@ export function renderStoryConfig(c) {
                     <div style="display: flex; justify-content: space-between; align-items: flex-end; gap: 6px; margin-bottom: 6px;">
                         <div style="text-align: left; min-width: 0;">
                             <div style="font-size: 0.55rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-muted);">Narration</div>
-                            <div style="font-size: 0.9rem; font-weight: 800; color: #a855f7; line-height: 1.1;"><span id="lbl_narr">${100 - dVal}</span>%</div>
+                            <div style="font-size: 0.9rem; font-weight: 800; color: var(--c-ai, #a855f7); line-height: 1.1;"><span id="lbl_narr">${100 - dVal}</span>%</div>
                         </div>
                         <div style="text-align: right; min-width: 0;">
                             <div style="font-size: 0.55rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px; color: var(--text-muted);">Dialogue</div>
-                            <div style="font-size: 0.9rem; font-weight: 800; color: #10b981; line-height: 1.1;"><span id="lbl_dial">${dVal}</span>%</div>
+                            <div style="font-size: 0.9rem; font-weight: 800; color: var(--c-live, #10b981); line-height: 1.1;"><span id="lbl_dial">${dVal}</span>%</div>
                         </div>
                     </div>
                     <input type="range" id="dnr_slider" min="0" max="100" step="10" value="${dVal}" style="width: 100%; accent-color: var(--gold); height: 4px; display: block;">
@@ -445,11 +429,11 @@ export function renderStoryConfig(c) {
     sidebar.append(`<div class="ws-sidebar-title">Writing Style</div>`);
 
     // Off Button
-    const btnOff = $(`<button class="ws-nav-btn ${isOff ? 'active-green' : ''}"><span style="display:flex; align-items:center; gap:10px;"><i class="fa-solid fa-power-off" style="color:${isLockedStyleEngine ? '#ef4444' : ''}"></i> No Style (Off)</span> ${isLockedStyleEngine ? '<i class="fa-solid fa-lock" style="color:#ef4444; font-size:0.7rem;"></i>' : ''}</button>`);
+    const btnOff = $(`<button class="ws-nav-btn ${isOff ? 'active-green' : ''}"><span style="display:flex; align-items:center; gap:10px;"><i class="fa-solid fa-power-off" style="color:${isLockedStyleEngine ? '#ef4444' : ''}"></i> No Style (Off)</span> ${isLockedStyleEngine ? '<i class="fa-solid fa-lock" style="color:var(--c-danger, #ef4444); font-size:0.7rem;"></i>' : ''}</button>`);
     if (!isLockedStyleEngine) {
         btnOff.on("click", () => { localProfile.activeStyleId = null; localProfile.aiRule = ""; saveProfileToMemory(); renderStyleLibrary(c); });
     } else {
-        btnOff.css({"opacity":"0.6", "cursor":"not-allowed"}).attr("title", "Modern Engines require a narrative style directive.");
+        btnOff.css({"opacity":"0.6", "cursor":"not-allowed"}).attr("title", "This preset needs a writing style.");
     }
     sidebar.append(btnOff);
     sidebar.append(`<div style="height: 1px; background: var(--border-color); margin: 8px 0;"></div>`);
@@ -477,7 +461,7 @@ export function renderStoryConfig(c) {
             <div class="ws-card ${isSel ? 'active' : ''}">
                 <div class="ws-card-title">
                     <span style="color:${isSel ? '#10b981' : 'var(--text-main)'};">${ds.name}</span>
-                    ${isSel ? '<i class="fa-solid fa-check" style="color:#10b981;"></i>' : ''}
+                    ${isSel ? '<i class="fa-solid fa-check" style="color:var(--c-live, #10b981);"></i>' : ''}
                 </div>
                 <div class="ws-card-desc">${ds.desc}</div>
                 <div class="ws-card-rule">${ds.rule}</div>
@@ -515,12 +499,12 @@ export function renderStoryConfig(c) {
     secPrecooked.append(gridPre);
 
     // B. CUSTOM
-    secCustom.append(`<h3 style="margin-top: 0; color: #10b981; font-size: 1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;"><i class="fa-solid fa-book"></i> My Library</h3>`);
+    secCustom.append(`<h3 style="margin-top: 0; color: var(--c-live, #10b981); font-size: 1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;"><i class="fa-solid fa-book"></i> My Library</h3>`);
     const gridCust = $(`<div class="ws-grid"></div>`);
     
     const createCard = $(`
         <div class="ws-card" style="border: 1px dashed rgba(16,185,129,0.5); background: transparent; justify-content: center; align-items: center; min-height: 120px;">
-            <div style="color: #10b981; font-weight: 700; font-size: 0.9rem;"><i class="fa-solid fa-plus"></i> Create New Style</div>
+            <div style="color: var(--c-live, #10b981); font-weight: 700; font-size: 0.9rem;"><i class="fa-solid fa-plus"></i> Create New Style</div>
         </div>
     `);
     createCard.on("click", () => renderStyleEditor(c, null));
@@ -533,13 +517,13 @@ export function renderStoryConfig(c) {
                 <div class="ws-card ${isSel ? 'active' : ''}">
                     <div class="ws-card-title">
                         <span style="color:${isSel ? '#10b981' : 'var(--text-main)'};">${style.name}</span>
-                        ${isSel ? '<i class="fa-solid fa-check" style="color:#10b981;"></i>' : ''}
+                        ${isSel ? '<i class="fa-solid fa-check" style="color:var(--c-live, #10b981);"></i>' : ''}
                     </div>
                     <div class="ws-card-desc" style="max-height: 40px; overflow: hidden;">${style.notes || "Custom AI generated style."}</div>
                     <div class="ws-card-actions">
                         <button class="ws-btn-small ps-btn-edit"><i class="fa-solid fa-pen"></i> Edit</button>
                         <button class="ws-btn-small ps-btn-regen" style="color: var(--gold); border-color: rgba(245,158,11,0.3);"><i class="fa-solid fa-rotate-right"></i></button>
-                        <button class="ws-btn-small ps-btn-delete" style="color: #ef4444; border-color: rgba(239,68,68,0.3);"><i class="fa-solid fa-trash"></i></button>
+                        <button class="ws-btn-small ps-btn-delete" style="color: var(--c-danger, #ef4444); border-color: rgba(239,68,68,0.3);"><i class="fa-solid fa-trash"></i></button>
                     </div>
                 </div>
             `);
@@ -548,8 +532,8 @@ export function renderStoryConfig(c) {
                 localProfile.activeStyleId = style.id; localProfile.aiRule = style.rule; saveProfileToMemory(); renderStyleLibrary(c);
             });
             card.find(".ps-btn-edit").on("click", () => renderStyleEditor(c, style.id));
-            card.find(".ps-btn-delete").on("click", () => {
-                if (confirm(`Delete "${style.name}"?`)) {
+            card.find(".ps-btn-delete").on("click", async () => {
+                if (await confirmPopup(`Delete "${style.name}"?`, "This writing style is deleted from your library.", { ok: "Delete" })) {
                     localProfile.customStyles = localProfile.customStyles.filter(s => s.id !== style.id);
                     if (localProfile.activeStyleId === style.id) { localProfile.activeStyleId = null; localProfile.aiRule = ""; }
                     saveProfileToMemory(); renderStyleLibrary(c);
@@ -572,7 +556,7 @@ export function renderStoryConfig(c) {
     secCustom.append(gridCust);
 
     // C. GENERATORS
-    secGenerators.append(`<h3 style="margin-top: 0; color: #a855f7; font-size: 1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;"><i class="fa-solid fa-wand-magic-sparkles"></i> AI Generators</h3>`);
+    secGenerators.append(`<h3 style="margin-top: 0; color: var(--c-ai, #a855f7); font-size: 1.1rem; border-bottom: 1px solid var(--border-color); padding-bottom: 10px;"><i class="fa-solid fa-wand-magic-sparkles"></i> AI Generators</h3>`);
     const gridGen = $(`<div class="ws-grid"></div>`);
     hardcodedLogic.styleTemplates.forEach(tpl => {
         if (existingNames.includes(tpl.name)) return;
@@ -580,7 +564,7 @@ export function renderStoryConfig(c) {
             <div class="ws-card" style="border-style: dashed; border-color: rgba(168,85,247,0.4); background: rgba(168,85,247,0.02);">
                 <div class="ws-card-title" style="color: #c084fc;">${tpl.name}</div>
                 <div class="ws-card-desc">${tpl.notes}</div>
-                <button class="ws-btn-small ps-btn-tpl-gen" style="margin-top: 12px; width: 100%; background: rgba(168,85,247,0.1); color: #c084fc; border-color: #a855f7;">
+                <button class="ws-btn-small ps-btn-tpl-gen" style="margin-top: 12px; width: 100%; background: rgba(168,85,247,0.1); color: #c084fc; border-color: var(--c-ai, #a855f7);">
                     <i class="fa-solid fa-bolt"></i> Generate This Style
                 </button>
             </div>
@@ -666,9 +650,9 @@ export function renderStyleEditor(c, editId, presetData = null) {
     // ── EDITOR TOP BAR ──
     c.append(`
         <div class="wstyle-editor-bar">
-            <i class="fa-solid fa-pen-nib" style="color: #a855f7; font-size: 1.1rem;"></i>
+            <i class="fa-solid fa-pen-nib" style="color: var(--c-ai, #a855f7); font-size: 1.1rem;"></i>
             <input type="text" id="ps_style_name" value="${currentStyle.name}" placeholder="Name your style…" />
-            <button id="ps_btn_save_style" class="ps-modern-btn primary" style="background: #10b981; color: #fff; padding: 8px 18px; white-space: nowrap;">
+            <button id="ps_btn_save_style" class="ps-modern-btn primary" style="background: var(--c-live, #10b981); color: #fff; padding: 8px 18px; white-space: nowrap;">
                 <i class="fa-solid fa-floppy-disk"></i> Save
             </button>
             <button id="ps_btn_cancel_style" class="ps-modern-btn secondary" style="color: var(--text-muted); padding: 8px 18px; white-space: nowrap;">
@@ -725,7 +709,7 @@ export function renderStyleEditor(c, editId, presetData = null) {
         <div class="wstyle-rule-panel">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
                 <div style="display: flex; align-items: center; gap: 8px;">
-                    <i class="fa-solid fa-scroll" style="color: #a855f7; font-size: 0.85rem;"></i>
+                    <i class="fa-solid fa-scroll" style="color: var(--c-ai, #a855f7); font-size: 0.85rem;"></i>
                     <span style="font-weight: 700; font-size: 0.88rem; color: var(--text-main);">Generated Rule</span>
                 </div>
                 <button id="ps_btn_generate_style" class="wstyle-gen-btn" style="padding: 8px 18px; font-size: 0.78rem;">

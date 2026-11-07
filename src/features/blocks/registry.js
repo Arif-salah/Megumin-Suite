@@ -12,10 +12,15 @@
 
 import { localProfile } from "../../core/state.js";
 import { getSidePanelSettings } from "../../sidepanel/panel.js";
-import { worldBlockRequest, blockViaChomusuke, notebookBlockRequest } from "../../state/index.js";
+import { worldBlockRequest, blockViaChomusuke, notebookBlockRequest, sceneBlockRequest, customBlockDueNow, worldUpdateMode, notebookCurrentPhase } from "../../state/index.js";
+import { normalizeCustomBlock, customBlockTags } from "../../state/modules/custom/model.js";
+import { customInfoTag, customFieldNotes, customBlockRules } from "../../state/modules/custom/render.js";
+import { CUSTOM_CHANGES_LINE, CUSTOM_FRESH_FIELDS_LINE } from "../../prompts/customBlocks.js";
+import { promptEdit, fillPromptTokens, editable, traced } from "../../prompts/edits.js";
+import { SCENE_TAG } from "../../state/scene.js";
 import { NOTEBOOK_TAGS } from "../../state/modules/notebook/parse.js";
 import {
-    BLOCKS_HEAD_SPLIT, wrapBlockRules, shortRulesHeading, bondsRulesSplit, sheetRulesSplit,
+    BLOCKS_HEAD_SPLIT, wrapBlockRules, shortRulesHeading, bondsRulesSplit, sheetRulesSplit, bondsRulesText, sheetRulesText, statRuleTokens,
     CHATTER_RULES, CHATTER_SKELETON, CHOICES_RULES, TRACKER_RULES, TRACKER_SKELETON,
     NEW_NPC_SLOT, NPC_UPDATE_SLOT, sameText,
 } from "../../prompts/v11Rules.js";
@@ -49,7 +54,7 @@ import { storyPlanPrompts } from "../../prompts/storyPlan.js";
 // to write. Optional -- a block without one simply shows no tooltip.
 export const MEGUMIN_BLOCK_REGISTRY = [
     {
-        id: "dice", tag: "Dice", label: "Roll",
+        id: "dice", tag: "Dice", label: "Dice",
         emoji: "\u{1F3B2}", icon: "fa-dice-d20", color: "#22d3ee",
         visibility: "open", builtin: true, system: true,
         // The model writes one <Dice> per roll as often as it writes one tag
@@ -79,7 +84,7 @@ export const MEGUMIN_BLOCK_REGISTRY = [
         // and sits at the front of the strip unless they move it.
         preferFirst: true,
         source: "[[cyoa]]", legacyIds: ["cyoa"],
-        buildSplit: body => splitIfBuiltin(body, "cyoa", { rules: CHOICES_RULES, body })
+        buildSplit: body => splitIfBuiltin(body, "cyoa", { rules: editable("v11ChoicesRules", CHOICES_RULES), body })
     },
     {
         id: "world", tag: "World_State", label: "World State",
@@ -102,7 +107,7 @@ export const MEGUMIN_BLOCK_REGISTRY = [
         emoji: "💭", icon: "fa-comment-dots", color: "#a855f7",
         visibility: "open", builtin: true,
         source: "[[npc_inner_chatter]]", legacyIds: ["npc_inner_chatter", "npc_inner_chatter_v2"],
-        buildSplit: body => splitIfBuiltin(body, "npc_inner_chatter", { rules: CHATTER_RULES, body: CHATTER_SKELETON })
+        buildSplit: body => splitIfBuiltin(body, "npc_inner_chatter", { rules: editable("v11ChatterRules", CHATTER_RULES), body: editable("v11ChatterLine", CHATTER_SKELETON) })
     },
     {
         id: "bonds", tag: "Bonds", label: "Bonds",
@@ -166,7 +171,7 @@ export const MEGUMIN_BLOCK_REGISTRY = [
         visibility: "open", builtin: true, system: true,
         source: "[[storytracker]]",
         buildSplit: body => sameText(body, normalizeBlockBody(storyPlanPrompts.trackerTemplate, "Story_Tracker"))
-            ? { rules: TRACKER_RULES, body: TRACKER_SKELETON } : null,
+            ? { rules: editable("v11TrackerRules", TRACKER_RULES), body: editable("v11TrackerTemplate", TRACKER_SKELETON) } : null,
         requires: p => Boolean(p.storyPlan && p.storyPlan.enabled)
     }
 ];
@@ -236,7 +241,8 @@ export function meguminActiveBlocks() {
 // generated from a field list, or a custom block's own text.
 export function meguminBlockTemplateBody(b, dict) {
     let raw;
-    if (typeof b.build === "function") raw = b.build();
+    if (!b.builtin) raw = meguminBuildCustomTemplate(b);
+    else if (typeof b.build === "function") raw = b.build();
     else if (b.source) raw = (dict && dict[b.source]) || "";
     else raw = b.content || "";
     return normalizeBlockBody(
@@ -254,14 +260,18 @@ export function blocksEnvelopeParts(dict) {
     // the envelope whenever it is on, even with no other block.
     let notebook = null;
     try { notebook = notebookBlockRequest(); } catch (e) { console.warn("[Megumin Suite] Notebook: could not build its request.", e); }
-    if (!active.length && !notebook) return { rules: [], parts: [], splitRules: [], splitParts: [] };
+    // Plan 022: the scene list comes first, so every block after it is written
+    // with the names already set. Asked for whenever a module needs names.
+    let scene = null;
+    try { scene = sceneBlockRequest(); } catch (e) { console.warn("[Megumin Suite] Scene: could not build its request.", e); }
+    if (!active.length && !notebook && !scene) return { rules: [], parts: [], splitRules: [], splitParts: [] };
 
-    const parts = [];
-    const rules = [];   // per-block rules, written above <Blocks>
+    const parts = scene ? [scene.template] : [];
+    const rules = scene ? [scene.rules] : [];   // per-block rules, written above <Blocks>
     // Plan 018: the V11 preset's copy. A block with `buildSplit` sends its rules
     // up top and only its lines to fill in the skeleton; the rest are the same.
-    const splitParts = [];
-    const splitRules = [];
+    const splitParts = scene ? [scene.template] : [];
+    const splitRules = scene ? [scene.rules] : [];
     active.forEach(b => {
         // A lead block is written before the prose, so it is deliberately not in
         // the envelope at all — the envelope is the last thing in the reply, and
@@ -294,6 +304,8 @@ export function blocksEnvelopeParts(dict) {
 
         // Plan 009: Chomusuke writes this one after the reply.
         if (blockViaChomusuke(b.id)) return;
+        // Plan 023: a custom block is asked for only on the turns it is due.
+        if (!b.builtin && !customBlockDueNow(b.id)) return;
 
         const body = meguminBlockTemplateBody(b, dict);
         if (!body) return;
@@ -321,6 +333,47 @@ export function blocksEnvelopeParts(dict) {
     return parts.length ? { rules, parts, splitRules, splitParts } : { rules: [], parts: [], splitRules: [], splitParts: [] };
 }
 
+// Dev Mode's preview (plan 025): every block that could ride in the envelope but
+// is not asked for this turn, and why. `kind`: off | elsewhere | empty.
+export function blocksLeftOut(dict) {
+    const stack = (localProfile && localProfile.blockStack) || { order: [], custom: [] };
+    const order = stack.order || [];
+    const out = [];
+    const add = (label, kind, why) => out.push({ label, kind, why });
+    const gates = {
+        newNpc: "Turn on the NPC Bank to send it.",
+        npcUpdate: "Sent once the NPC Bank is on and has someone in it.",
+        tracker: "Turn on Story Plan to send it.",
+    };
+    [...MEGUMIN_BLOCK_REGISTRY, ...(stack.custom || [])].forEach(def => {
+        if (def.lead || def.id === "worldUpdate") return;
+        const b = meguminBlockById(def.id) || def;
+        const label = b.label || b.tag || b.id;
+        const on = typeof b.requires !== "function" || b.requires(localProfile);
+        if (b.system) {
+            if (!on) add(label, "off", gates[b.id] || "Its feature is off.");
+            else if (b.slot && typeof b.slotRequires === "function" && !b.slotRequires(dict || {})) add(label, "empty", "On, but not asked for this turn.");
+            return;
+        }
+        if (!order.includes(b.id) || !on) { add(label, "off", "Add it in the Blocks tab to send it."); return; }
+        if (b.id === "world") {
+            const mode = worldUpdateMode();
+            if (mode === "manual") add(label, "elsewhere", "Set to manual in the World State tab: you write it yourself.");
+            else if (mode === "sidemodel") add(label, "elsewhere", "Chomusuke writes it after the reply (Chomusuke tab).");
+            return;
+        }
+        if (blockViaChomusuke(b.id)) { add(label, "elsewhere", "Chomusuke writes it after the reply (Chomusuke tab)."); return; }
+        if (!b.builtin && !customBlockDueNow(b.id)) {
+            add(label, b.writer === "chomusuke" ? "elsewhere" : "empty",
+                b.writer === "chomusuke" ? "Chomusuke writes it after the reply." : "Not due this turn (its \"when\" setting).");
+        }
+    });
+    let phase = "off";
+    try { phase = notebookCurrentPhase(); } catch (e) { phase = "off"; }
+    if (phase === "off") add("Author's Notebook", "off", "Turn it on in The Notebook tab to send it.");
+    return out;
+}
+
 // The rules come FIRST and the "output" line sits right above the skeleton.
 // Placed between the two, the rules read as part of what to write: the model
 // echoed them into its reply. They are headings, never tags, for the same reason.
@@ -343,7 +396,7 @@ export function blockRulesText(env) {
 export function blocksSkeletonSplit(env) {
     const parts = env.splitParts || [];
     if (!parts.length) return "";
-    return `${BLOCKS_HEAD_SPLIT}\n\n<Blocks>\n${parts.join("\n")}\n</Blocks>`;
+    return `${editable("v11BlocksHead", BLOCKS_HEAD_SPLIT)}\n\n<Blocks>\n${parts.join("\n")}\n</Blocks>`;
 }
 
 /** The output line and the <Blocks> skeleton, without the rules. */
@@ -366,7 +419,9 @@ export function meguminRenderRegistry() {
     const overrides = stack.overrides || {};
     return [...MEGUMIN_BLOCK_REGISTRY, ...(stack.custom || [])].map(def => {
         const o = overrides[def.id];
-        return o && o.visibility ? { ...def, visibility: o.visibility } : def;
+        // Plan 023: a custom field block is drawn like the Sheet (bars, chips).
+        const drawn = !def.builtin && def.kind === "fields" ? { ...def, treatment: "sheet" } : def;
+        return o && o.visibility ? { ...drawn, visibility: o.visibility } : drawn;
     });
 }
 
@@ -423,6 +478,10 @@ export function meguminStatFieldMap() {
     Object.keys((localProfile && localProfile.statBlocks) || {}).forEach(id => {
         out[id] = meguminStatFields(id);
     });
+    // Plan 023: custom field blocks, under their own id.
+    ((localProfile && localProfile.blockStack && localProfile.blockStack.custom) || []).forEach(b => {
+        if (b && b.kind === "fields" && Array.isArray(b.fields)) out[b.id] = b.fields.filter(f => f && f.label);
+    });
     return out;
 }
 
@@ -451,18 +510,27 @@ export function meguminStatRules(fields, subject, opts = {}) {
     // through its own old blocks (which are hidden from it), so that is where
     // it is told to start from.
     const notes = opts.notesTag || `${subject}_Now`;
+    const from = opts.from || `<${notes}> in <Current_Info>`;
     const lines = [
-        `- Start every number from <${notes}> in <Current_Info>. Never reset one, and never invent a value that is already there.`,
+        `- Start every number from ${from}. Never reset one, and never invent a value that is already there.`,
         `- A number moves only when something in THIS scene moved it. Write the change and the reason in brackets, e.g. (-6 he apologised and she heard pity). When nothing moved it, write (=).`
     ];
     // The cap is for meters only. A counted field like Gold legitimately jumps by
     // hundreds, and a rule that forbids it would either be broken every time it
     // mattered or quietly stop the story from paying anyone.
-    if (meters.length) {
+    // Custom blocks leave it out: the user says how a field moves in its own box.
+    if (meters.length && opts.cap !== false) {
         lines.push(`- ${meters.map(f => f.label).join(", ")} move at most 10 in one reply unless the scene plainly earns more.`);
     }
-    lines.push(`- Starting values when <${notes}> has none${opts.perSubject ? " for that person" : ""}: ${seeds}.`);
+    lines.push(`- Starting values when ${opts.from || `<${notes}>`} has none${opts.perSubject ? " for that person" : ""}: ${seeds}.`);
     return lines.join("\n");
+}
+
+// Rules edited in Dev Mode ("bondsRules" / "sheetRules"), with {{start}} and
+// {{meters}} filled from the fields as they are now; "" when not edited.
+function editedStatRules(key, fields) {
+    const t = promptEdit(key);
+    return t ? fillPromptTokens(t, statRuleTokens(fields)).trim() : "";
 }
 
 // The Bonds template: one line per NPC, generated from the field list.
@@ -470,8 +538,10 @@ export function meguminBuildBondsTemplate() {
     const fields = meguminStatFields("bonds");
     if (!fields.length) return "";
     const line = fields.map(meguminStatFieldSpec).join(" | ");
+    const edited = editedStatRules("bondsRules", fields);
+    if (edited) return [`[${traced("bondsRules", edited)}]`, "", `[NPC Name]: ${line}`].join("\n");
     return [
-        "[One line per named NPC present in the scene, plus any NPC whose numbers changed this scene. Nobody else.",
+        "[One line per named NPC in <Scene>, Here or Remote, plus any NPC whose numbers changed this scene. Nobody else.",
         meguminStatRules(fields, "Bonds", { perSubject: true, notesTag: "Bonds_Now" }),
         "- These are feelings, not bodies. Do not describe clothing, posture or location here.]",
         "",
@@ -484,8 +554,9 @@ export function meguminBuildBondsTemplate() {
 export function meguminBuildBondsSplit() {
     const fields = meguminStatFields("bonds");
     if (!fields.length) return null;
+    const edited = editedStatRules("bondsRules", fields);
     return {
-        rules: bondsRulesSplit(fields),
+        rules: `## Bonds\n${traced("bondsRules", edited || bondsRulesText(fields))}`,
         body: `[NPC Name]: ${fields.map(meguminStatFieldSpec).join(" | ")}`
     };
 }
@@ -495,7 +566,35 @@ export function meguminBuildSheetSplit() {
     if (!fields.length) return null;
     const inline = fields.filter(f => !f.ownLine).map(meguminStatFieldSpec).join(" | ");
     const own = fields.filter(f => f.ownLine).map(meguminStatFieldSpec);
-    return { rules: sheetRulesSplit(fields), body: [inline, ...own].filter(Boolean).join("\n") };
+    const edited = editedStatRules("sheetRules", fields);
+    return { rules: `## Character Sheet\n${traced("sheetRules", edited || sheetRulesText(fields))}`, body: [inline, ...own].filter(Boolean).join("\n") };
+}
+
+// A custom block's template (plan 023). Free text is the user's own, as
+// written. A field block is built like the Sheet, with the rules for where its
+// old values are: <Name_Now> in Current Info, its last copy in the chat, or
+// nowhere (it starts fresh).
+export function meguminBuildCustomTemplate(raw) {
+    const b = normalizeCustomBlock(raw);
+    const head = b.when === "changes" ? [editable("customChangesLine", CUSTOM_CHANGES_LINE)] : [];
+    if (b.kind !== "fields") return [...head, b.content || ""].join("\n").trim();
+    const fields = b.fields.filter(f => f && String(f.label || "").trim());
+    if (!fields.length) return "";
+    // Chomusuke never reads old replies: it gets the values in <Name_Now> either way.
+    const fromInfo = b.memory === "info" || (b.memory === "chat" && b.writer === "chomusuke");
+    const rules = fromInfo ? meguminStatRules(fields, b.label, { notesTag: customInfoTag(b), cap: false })
+        : b.memory === "chat" ? meguminStatRules(fields, b.label, { from: `your last <${b.tag}> block`, cap: false })
+        : editable("customFreshFieldsLine", CUSTOM_FRESH_FIELDS_LINE);
+    // The user's rules for the whole block, then what each field means and how
+    // it moves, in their words, before our rules.
+    const blockRules = customBlockRules(b);
+    const notes = customFieldNotes(fields);
+    const inline = fields.filter(f => !f.ownLine).map(meguminStatFieldSpec).join(" | ");
+    const own = fields.filter(f => f.ownLine).map(meguminStatFieldSpec);
+    const paragraph = [...blockRules, ...notes, rules].filter(Boolean).join("\n");
+    const top = [...head, paragraph ? `[${b.label}.\n${paragraph}]` : ""].filter(Boolean);
+    const lines = [inline, ...own].filter(Boolean);
+    return [...top, ...(top.length ? [""] : []), ...lines].join("\n");
 }
 
 // The Character Sheet template: {{user}} only, so nothing repeats.
@@ -504,6 +603,8 @@ export function meguminBuildSheetTemplate() {
     if (!fields.length) return "";
     const inline = fields.filter(f => !f.ownLine).map(meguminStatFieldSpec).join(" | ");
     const own = fields.filter(f => f.ownLine).map(meguminStatFieldSpec);
+    const edited = editedStatRules("sheetRules", fields);
+    if (edited) return [`[${traced("sheetRules", edited)}]`, "", inline, ...own].filter(Boolean).join("\n");
     return [
         "[{{user}}'s sheet.",
         meguminStatRules(fields, "Character Sheet", { notesTag: "Character_Sheet_Now" }),
@@ -526,7 +627,8 @@ export function meguminBlockById(id) {
 // block that silently leaks, which is why it is derived rather than typed out.
 export function meguminAllBlockTags() {
     const custom = (localProfile && localProfile.blockStack && localProfile.blockStack.custom) || [];
-    const tags = [...MEGUMIN_BLOCK_REGISTRY.map(b => b.tag), ...custom.map(b => b.tag), ...NOTEBOOK_TAGS];
+    // A renamed custom block's old tags too (plan 023).
+    const tags = [...MEGUMIN_BLOCK_REGISTRY.map(b => b.tag), ...custom.flatMap(b => customBlockTags(normalizeCustomBlock(b))), ...NOTEBOOK_TAGS, SCENE_TAG];
     // Story_Tracker is stripped explicitly by the cleaner before this list is
     // used, and stripping it twice is harmless, but a duplicate here would build
     // the same RegExp twice on every cleaned message.
@@ -546,7 +648,7 @@ export const BLOCK_VISIBILITY_CHOICES = [
 export const RESERVED_BLOCK_TAGS = [
     "blocks", "details", "summary", "think", "thinking", "gametxt", "updatevariable",
     "combat_log", "location", "options", "disclaimer", "div", "span", "img", "p", "br",
-    "notebook", "notebook_update"
+    "notebook", "notebook_update", "scene"
 ];
 
 export function blockTagFromName(name) {

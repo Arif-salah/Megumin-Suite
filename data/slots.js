@@ -24,7 +24,33 @@ import {
     FORMATTING_RULES, FINAL_CHECKS, BUILTIN_BAN_LIST,
 } from "../src/prompts/presetFrame.js";
 
+import { worldPromptDefault } from "../src/state/modules/world/render.js";
+import {
+    bondsRulesText, sheetRulesText,
+    CHOICES_RULES, CHATTER_RULES, CHATTER_SKELETON, TRACKER_RULES, TRACKER_SKELETON,
+    BLOCKS_HEAD_SPLIT, BLOCK_RULES_LEAD, STORY_SETTINGS_PREAMBLE, FINAL_CHECK_HEAD,
+    DICE_RULES_PLAYER, DICE_RULES_EVERYONE, ADDON_RULES_SPLIT, NPC_DOSSIER_RULES, GEMINI_JB, GEMINI_CARET_LINE,
+} from "../src/prompts/v11Rules.js";
+import {
+    SCENE_RULES, SCENE_TEMPLATE, KNOWN_NAMES_LEAD, KNOWN_NAMES_TASK, BLOCKS_CHECK, BLOCKS_CHECK_SCENE,
+} from "../src/prompts/scene.js";
+import { CUSTOM_CHANGES_LINE, CUSTOM_FRESH_FIELDS_LINE, CUSTOM_LAST_NOTE } from "../src/prompts/customBlocks.js";
+import { notebookSetupText, notebookUpdateText, NOTEBOOK_TRUTH_FORM } from "../src/state/modules/notebook/render.js";
+import {
+    NOTEBOOK_WORKER_SYSTEM, NOTEBOOK_CLERK_RULES, NOTEBOOK_SETUP_SYSTEM, notebookSetupClerkText,
+} from "../src/state/modules/notebook/worker.js";
+import { BLOCKS_WORKER_SYSTEM, BLOCKS_WORKER_TASK } from "../src/state/modules/stats/worker.js";
+import { worldClerkSystem } from "../src/state/modules/world/render.js";
+import {
+    V2_LOOKS_TASK, V2_OUTFIT_TASK, COMBINED_IMAGE_TASK, COMBINED_SYSTEM_EDITABLE,
+} from "../src/features/imagegen/v2/prompt.js";
+import { IMAGE_V2_BUILTIN } from "../src/prompts/imageGenV2.js";
+
 const addonText = id => addons.find(a => a.id === id)?.content || "";
+const statFieldsOf = (p, id) => {
+    const cfg = (p && p.statBlocks && p.statBlocks[id]) || {};
+    return Array.isArray(cfg.fields) ? cfg.fields.filter(f => f && f.label) : [];
+};
 const blockText = id => blocks.find(b => b.id === id)?.content || "";
 
 // ── Scopes ───────────────────────────────────────────────────────────────────
@@ -54,16 +80,18 @@ const gate = (test, label, where) => ({ test, label, where });
 const GATE = {
     think:   gate(p => p.cotEnabled !== false, "Chain of Thought", "Preset & Thinking"),
     block:   id => gate(p => (p.blocks || []).includes(id), null, "Blocks"),
-    addon:   id => gate(p => (p.addons || []).includes(id), null, "Add-ons"),
+    addon:   id => gate(p => (p.addons || []).includes(id), null, "Writing Style → Language & rules"),
     chatter: gate(p => (p.blocks || []).includes("npc_inner_chatter")
                     || (p.blocks || []).includes("npc_inner_chatter_v2"),
                   "NPC Inner Chatter", "Blocks"),
     plan:    gate(p => !!(p.storyPlan && p.storyPlan.enabled), "Story Director", "Story Plan"),
     dnratio: gate(p => !!(p.dnRatio && p.dnRatio.enabled), "Dialogue/Narration ratio", "Writing Style"),
-    onomato: gate(p => !!(p.onomatopoeia && p.onomatopoeia.enabled), "Onomatopoeia", "Language & Add-ons"),
+    onomato: gate(p => !!(p.onomatopoeia && p.onomatopoeia.enabled), "Onomatopoeia", "Writing Style → Language & rules"),
     dice:    gate(p => (p.addons || []).includes("dice")
-                    || (p.addons || []).includes("dice_all"), "Dice", "Add-ons"),
+                    || (p.addons || []).includes("dice_all"), "Dice", "Writing Style → Language & rules"),
     banBuiltIn: gate(p => p.banListBuiltIn !== false, "Built-in list", "Banned Phrases"),
+    world:   gate(p => (p.blocks || []).includes("info"), "World State", "Blocks"),
+    stat:    (id, label) => gate(p => ((p.blockStack && p.blockStack.order) || []).includes(id), label, "Blocks"),
 
     // The one gate keyed on the ENGINE rather than a switch the reader flips.
     // Every engine gets the "never write for {{user}}" rule except the Co-writer
@@ -73,7 +101,7 @@ const GATE = {
     // Custom clones are resolved from customModes as well as the shipped list,
     // because a clone of a Co-writer is still a Co-writer.
     notCoWriter: gate(p => !isCoWriterEngine(meguminModeById(p && p.mode)),
-                      "a non Co-writer engine", "Preset & Thinking"),
+                      "a non Co-writer preset", "Preset & Thinking"),
 };
 
 /**
@@ -109,6 +137,170 @@ const cotPicker = key => () => models
     .filter(m => m.id !== "cot-off" && (m[key] || "").trim() !== "")
     .map(m => ({ label: m.id, value: m[key] }));
 
+// ── Texts read where they are built (plan 024) ──────────────────────────────
+//
+// No preset tag: src/prompts/edits.js reads the edit where the text is built,
+// and the trigger is only a name. `placement` says where it goes instead of
+// the preset map. {{tokens}} are filled in when it is sent.
+const PLACE = {
+    v11: "Sent with a V11 preset only, near the top of the prompt with the other rules. Older presets send the box above it instead.",
+    v11Turn: "Sent with a V11 preset only, in the last part of the prompt, after the chat.",
+    scene: "Sent while World State, Bonds or Inner Chatter is on: the rules with the other block rules, the template first in <Blocks>.",
+    names: "Sent in <Current_Info> while the story has named characters, and to Chomusuke with its notes.",
+    check: "A line of the final check at the end of the prompt, on turns that ask for blocks.",
+    custom: "Sent with your custom blocks (Blocks tab), for the blocks whose settings use it.",
+    notebook: "Sent to the story while the Author's Notebook is on.",
+    chomusuke: "Sent to Chomusuke, never to the story model.",
+    image: "Sent wherever an image prompt is written: by Chomusuke, or by the story with inline images.",
+};
+const text = (key, group, label, placement, hint, fallback) =>
+    ({ key, trigger: `[[edit:${key}]]`, label, scope: "shared", group, placement, hint, fallback });
+
+const IMAGE_V2_LABELS = {
+    "system": "Opening (who writes the image prompt)",
+    "style.tags": "Style guide: tags",
+    "style.natural": "Style guide: natural sentences",
+    "style.qwen": "Style guide: Qwen Image",
+    "style.krea": "Style guide: Krea 2",
+    "levels": "How much of each character shows (@Name:waist)",
+    "lookDetail": "Looks for Qwen Image and Krea 2: body detail",
+    "textInImages": "Text in images (Qwen Image and Krea 2)",
+    "shotKrea.cinematic": "Krea 2 shot: cinematic",
+    "shotKrea.pov": "Krea 2 shot: point of view",
+    "shotKrea.portrait": "Krea 2 shot: portrait",
+    "artStyleLine": "Qwen Image: art style line",
+    "shotQwen.cinematic": "Qwen Image shot: cinematic",
+    "shotQwen.pov": "Qwen Image shot: point of view",
+    "shotQwen.portrait": "Qwen Image shot: portrait",
+    "qwenLook.system": "Qwen Image looks: opening",
+    "qwenLook.task": "Qwen Image looks: task",
+    "qwenOutfit.system": "Qwen Image outfits: opening",
+    "qwenOutfit.task": "Qwen Image outfits: task",
+    "descriptionsInEnglish": "Descriptions in English",
+    "shot.cinematic": "Shot: cinematic",
+    "shot.pov": "Shot: point of view",
+    "shot.portrait": "Shot: portrait",
+    "reference.head": "Edit last prompt: opening",
+    "reference.tags": "Edit last prompt: tags",
+    "reference.natural": "Edit last prompt: natural sentences",
+    "inEnglish": "Image prompt in English",
+    "tagsInEnglish": "Tags in English",
+    "manualTask": "Task: draw the last message",
+    "manualTaskWithExtras": "Task: draw the last message, with outfits and looks",
+    "inlineHead": "Inline images: opening (older presets)",
+    "inlineHeadSplit": "Inline images: opening (V11)",
+    "inlineTail": "Inline images: closing line",
+};
+const imageV2Texts = (tree, prefix = "") => Object.entries(tree).flatMap(([k, v]) => {
+    const path = prefix ? `${prefix}.${k}` : k;
+    if (v && typeof v === "object" && !Array.isArray(v)) return imageV2Texts(v, path);
+    return [text(`imageV2.${path}`, "imagev2", IMAGE_V2_LABELS[path] || path, PLACE.image,
+        path.startsWith("inline") ? "{{conditionalText}} and {{imageCount}} are filled in from the Images tab." : "",
+        () => Array.isArray(v) ? v.join("\n") : v)];
+});
+
+const EDITABLE_TEXTS = [
+    // V11 preset rules
+    text("v11BlockRulesLead", "v11", "Block rules: opening line", PLACE.v11, "The line that opens <block_rules>.", () => BLOCK_RULES_LEAD),
+    text("v11BlocksHead", "v11", "Blocks: opening line", PLACE.v11Turn, "The line before the <Blocks> skeleton in <turn_notes>.", () => BLOCKS_HEAD_SPLIT),
+    text("v11ChoicesRules", "v11", "Choices rules", PLACE.v11, "Used while the Choices Block box above is not edited.", () => CHOICES_RULES),
+    text("v11ChatterRules", "v11", "Inner Chatter rules", PLACE.v11, "Used while the NPC Inner Chatter box above is not edited.", () => CHATTER_RULES),
+    text("v11ChatterLine", "v11", "Inner Chatter: line to fill in", PLACE.v11Turn, "The skeleton line in <Blocks>.", () => CHATTER_SKELETON),
+    text("v11TrackerRules", "v11", "Story Tracker rules", PLACE.v11, "Used while the Story Tracker box above is not edited.", () => TRACKER_RULES),
+    text("v11TrackerTemplate", "v11", "Story Tracker: lines to fill in", PLACE.v11Turn, "The skeleton lines in <Blocks>. Keep the labels: the story's answer is read by them.", () => TRACKER_SKELETON),
+    text("v11DiceRulesPlayer", "v11", "Dice rules: player only", PLACE.v11, "Used while the Dice box is not edited and Dice is set to the player.", () => DICE_RULES_PLAYER),
+    text("v11DiceRulesEveryone", "v11", "Dice rules: everyone", PLACE.v11, "Used while the Dice box is not edited and Dice is set to everyone.", () => DICE_RULES_EVERYONE),
+    text("v11AddonDeath", "v11", "Death System", PLACE.v11, "Used while the Death System box is not edited.", () => ADDON_RULES_SPLIT.death),
+    text("v11AddonCombat", "v11", "Combat System", PLACE.v11, "Used while the Combat System box is not edited.", () => ADDON_RULES_SPLIT.combat),
+    text("v11AddonOnomato", "v11", "Onomatopoeia", PLACE.v11, "Used while the Onomatopoeia box is not edited, without styling.", () => ADDON_RULES_SPLIT.onomato),
+    text("v11AddonOnomatoStyled", "v11", "Onomatopoeia (styled)", PLACE.v11, "Used while the Onomatopoeia box is not edited, with styling on.", () => ADDON_RULES_SPLIT.onomatoStyled),
+    text("geminiJB", "v11", "Gemini line", "Sent while the Gemini JB add-on is on, where your preset has [[GeminiJB]].", "", () => GEMINI_JB),
+    text("geminiCaret", "v11", "Gemini: ^ before every word", "Sent while the Gemini JB add-on is on, as the last line of the formatting section.", "The ^ are taken out of each reply as soon as it arrives.", () => GEMINI_CARET_LINE),
+    text("v11NpcDossierRules", "v11", "NPC Bank: new characters", PLACE.v11, "{{template}} is the dossier form from the NPC Bank tab, {{persistenceRule}} the line about fields that never change.", () => NPC_DOSSIER_RULES),
+    text("v11StorySettingsLead", "v11", "Story settings: opening line", PLACE.v11Turn, "The line that opens <story_settings>.", () => STORY_SETTINGS_PREAMBLE),
+    text("v11FinalCheckHead", "v11", "Final check: opening line", PLACE.v11Turn, "The line that opens <final_check>.", () => FINAL_CHECK_HEAD),
+
+    // Scene and names
+    text("sceneRules", "scene", "Scene rules", PLACE.scene, "Chomusuke gets the same rules, worded for the latest exchange, when it writes the scene. Keep Here: and Remote: as they are: the answer is read by them.", () => SCENE_RULES),
+    text("sceneTemplate", "scene", "Scene template", PLACE.scene, "The <Scene> lines to fill in.", () => SCENE_TEMPLATE),
+    text("knownNamesLead", "scene", "Known names: opening line", PLACE.names, "The line above the list of names.", () => KNOWN_NAMES_LEAD),
+    text("knownNamesTask", "scene", "Known names: Chomusuke's line", PLACE.chomusuke, "Told after the names when Chomusuke writes World State or blocks.", () => KNOWN_NAMES_TASK),
+    text("blocksCheck", "scene", "Final check: blocks", PLACE.check, "When the turn has no <Scene>.", () => BLOCKS_CHECK),
+    text("blocksCheckScene", "scene", "Final check: blocks with Scene", PLACE.check, "When <Scene> opens <Blocks>.", () => BLOCKS_CHECK_SCENE),
+
+    // Custom blocks
+    text("customChangesLine", "blocks", "Custom blocks: only when it changes", PLACE.custom, "Leads a block set to \"Only when it changes\".", () => CUSTOM_CHANGES_LINE),
+    text("customFreshFieldsLine", "blocks", "Custom blocks: starts fresh", PLACE.custom, "The rule line of a field block set to \"Starts fresh\".", () => CUSTOM_FRESH_FIELDS_LINE),
+    text("customLastNote", "blocks", "Custom blocks: last copy note", PLACE.custom, "Sits on top of a free-text block's last copy in Current Info.", () => CUSTOM_LAST_NOTE),
+
+    // Author's Notebook
+    text("notebookSetupRules", "notebook", "Setup rules", PLACE.notebook, "Asked while the notebook is empty. {{truths}} is \"two or three truths\" (from the number of truths in The Notebook tab), {{truth_form}} the truth form below.", () => notebookSetupText("{{truths}}", "{{truth_form}}")),
+    text("notebookTruthForm", "notebook", "Truth form", PLACE.notebook, "How one truth is written. Also given to Chomusuke when it writes the setup. Keep the labels: the answer is read by them.", () => NOTEBOOK_TRUTH_FORM.join("\n")),
+    text("notebookUpdateRules", "notebook", "Update rules", PLACE.notebook, "Asked once the notebook has truths. {{max}} is the number of truths.", () => notebookUpdateText(false, "{{max}}")),
+    text("notebookUpdateRulesNewOnly", "notebook", "Update rules (Chomusuke writes the clues)", PLACE.notebook, "Asked when Chomusuke writes the clues, so the story only adds new truths. {{max}} is the number of truths.", () => notebookUpdateText(true, "{{max}}")),
+
+    // Chomusuke
+    text("worldClerkSystem", "chomusuke", "World State read: opening", PLACE.chomusuke, "Who Chomusuke is when it writes World State on its own. Its rules are the World State boxes under Output Blocks.", () => worldClerkSystem("")),
+    text("blocksWorkerSystem", "chomusuke", "Blocks read: opening", PLACE.chomusuke, "Who Chomusuke is when it writes blocks on its own.", () => BLOCKS_WORKER_SYSTEM),
+    text("blocksWorkerTask", "chomusuke", "Blocks read: task line", PLACE.chomusuke, "The line above the blocks it writes (also in the combined call).", () => BLOCKS_WORKER_TASK),
+    text("notebookWorkerSystem", "chomusuke", "Notebook read: opening", PLACE.chomusuke, "Who Chomusuke is when it reads the notebook's clues.", () => NOTEBOOK_WORKER_SYSTEM),
+    text("notebookClerkRules", "chomusuke", "Notebook read: rules", PLACE.chomusuke, "Also used in the combined call. Keep the line forms (Clue T1:, Learned T1:, Truth-:): the answer is read by them.", () => NOTEBOOK_CLERK_RULES),
+    text("notebookSetupSystem", "chomusuke", "Notebook setup: opening", PLACE.chomusuke, "Who Chomusuke is when it writes the notebook's truths.", () => NOTEBOOK_SETUP_SYSTEM),
+    text("notebookSetupClerkRules", "chomusuke", "Notebook setup: rules", PLACE.chomusuke, "{{truths}} is \"two or three truths\", {{truth_form}} the truth form (Author's Notebook group).", () => notebookSetupClerkText("{{truths}}", "{{truth_form}}")),
+    text("combinedSystem", "chomusuke", "Combined call: opening", PLACE.chomusuke, "Your text replaces every form of it. {{jobs}} is what the call does this time (\"note what it changed in the world and write an image prompt…\").", () => COMBINED_SYSTEM_EDITABLE),
+    text("combinedImageTask", "chomusuke", "Combined call: image task", PLACE.chomusuke, "The first line of the image task.", () => COMBINED_IMAGE_TASK),
+    text("imageV2OutfitTask", "imagev2", "Outfit tags task", PLACE.chomusuke, "{{who}} is whose outfits.", () => V2_OUTFIT_TASK),
+    text("imageV2LooksTask", "imagev2", "Looks task", PLACE.chomusuke, "{{names}} is the characters who need a look.", () => V2_LOOKS_TASK),
+
+    // Image V2
+    ...imageV2Texts(IMAGE_V2_BUILTIN),
+];
+
+// Where each text sits in each Universal .json (plan 025): Dev Mode draws it
+// under that tag in the file's skeleton. The V11 file sends the rules up top
+// in [[block_rules]] and the lines to fill in [[this_turn]]; the V10 file
+// sends both inside [[blocks]]. No entry = not in the preset file (Chomusuke,
+// Images), or not in that file.
+const RULES = { v11: "[[block_rules]]", v10: "[[blocks]]" };
+const LINES = { v11: "[[this_turn]]", v10: "[[blocks]]" };
+export const SLOT_IN_TAG = {
+    worldFullRules: RULES, worldUpdateRules: RULES, bondsRules: RULES, sheetRules: RULES,
+    worldFullTemplate: LINES, worldUpdateTemplate: LINES,
+    sceneRules: RULES, sceneTemplate: LINES,
+    notebookSetupRules: RULES, notebookTruthForm: RULES, notebookUpdateRules: RULES, notebookUpdateRulesNewOnly: RULES,
+    customChangesLine: LINES, customFreshFieldsLine: LINES,
+    customLastNote: { v11: "[[infoblockcurrent]]", v10: "[[infoblockcurrent]]" },
+    knownNamesLead: { v11: "[[infoblockcurrent]]", v10: "[[infoblockcurrent]]" },
+    v11BlockRulesLead: { v11: "[[block_rules]]" },
+    v11ChoicesRules: { v11: "[[block_rules]]" },
+    v11ChatterRules: { v11: "[[block_rules]]" },
+    v11TrackerRules: { v11: "[[block_rules]]" },
+    v11BlocksHead: { v11: "[[this_turn]]" },
+    v11ChatterLine: { v11: "[[this_turn]]" },
+    v11TrackerTemplate: { v11: "[[this_turn]]" },
+    v11DiceRulesPlayer: { v11: "[[dice_rules]]" },
+    v11DiceRulesEveryone: { v11: "[[dice_rules]]" },
+    v11AddonDeath: { v11: "[[addon_rules]]" },
+    v11AddonCombat: { v11: "[[addon_rules]]" },
+    v11AddonOnomato: { v11: "[[addon_rules]]" },
+    v11AddonOnomatoStyled: { v11: "[[addon_rules]]" },
+    v11NpcDossierRules: { v11: "[[npc_rules]]" },
+    v11StorySettingsLead: { v11: "[[config]]" },
+    // Dev Mode draws V11's [[reminder]] as its lines, so these sit with the checks.
+    v11FinalCheckHead: { v11: "[[final_checks]]" },
+    blocksCheck: { v11: "[[final_checks]]" },
+    blocksCheckScene: { v11: "[[final_checks]]" },
+    "imageV2.inlineHeadSplit": { v11: "[[img_rules]]" },
+    "imageV2.inlineHead": { v10: "[[img1]]" },
+    "imageV2.inlineTail": { v11: "[[img_rules]]", v10: "[[img1]]" },
+};
+
+/** The tag a text slot sits in for one .json ("v11" | "v10"), or null. */
+export function meguminSlotInTag(slot, json) {
+    const m = slot && slot.key ? SLOT_IN_TAG[slot.key] : null;
+    return (m && m[json]) || null;
+}
+
 export const MEGUMIN_SLOT_REGISTRY = [
     // ── The engine's own voice ───────────────────────────────────────────────
     { key: "p1", trigger: "[[prompt1]]", structural: true, label: "Prompt 1", scope: "engine", group: "engine",
@@ -122,10 +314,10 @@ export const MEGUMIN_SLOT_REGISTRY = [
     { key: "p5", trigger: "[[prompt5]]", structural: true, label: "Prompt 5", scope: "engine", group: "engine",
       hint: "How characters act and what the model may decide on its own." },
     { key: "p6", trigger: "[[prompt6]]", structural: true, label: "Prompt 6", scope: "engine", group: "engine",
-      hint: "The last of the engine's own instructions." },
+      hint: "The last of the preset's own instructions." },
     { key: "main", trigger: "[[main]]", hidden: true, label: "Personality", scope: "auto", group: "engine",
       where: "Persona",
-      hint: "Comes from the Persona tab. Blanked entirely on V6 and newer engines." },
+      hint: "Comes from the Persona tab. Blanked entirely on V6 and newer presets." },
     { key: "A1", trigger: "[[AI1]]", structural: true, hidden: true, label: "Model Acknowledgement 1", scope: "engine", group: "engine",
       advanced: true, hint: "A fake reply from the model, agreeing that it read the rules." },
     { key: "A2", trigger: "[[AI2]]", structural: true, hidden: true, label: "Model Acknowledgement 2", scope: "engine", group: "engine",
@@ -139,13 +331,13 @@ export const MEGUMIN_SLOT_REGISTRY = [
     { key: "cot", trigger: "[[COT]]", label: "Chain of Thought", scope: "engine", group: "reasoning",
       carrier: "think",
       picker: { label: "Load from a chain-of-thought", options: cotPicker("content") },
-      hint: "The reasoning script the model works through before it writes. Engine-specific, because it is written to match the engine's own rules." },
+      hint: "The reasoning script the model works through before it writes. Preset-specific, because it is written to match the preset's own rules." },
     { key: "prefill", trigger: "[[prefill]]", label: "Prefill", scope: "engine", group: "reasoning",
       picker: { label: "Load from a chain-of-thought", options: cotPicker("prefill") },
       hint: "Words put into the model's mouth to start its reply." },
     { key: "think", trigger: "[[THINK]]", label: "Thinking Tags", scope: "shared", group: "reasoning",
       gate: GATE.think,
-      hint: "The tags the reasoning is wrapped in. {Thinking} marks where the engine's Chain of Thought is dropped in — keep it, or the script has nowhere to go.",
+      hint: "The tags the reasoning is wrapped in. {Thinking} marks where the preset's Chain of Thought is dropped in — keep it, or the script has nowhere to go.",
       fallback: () => "<think>\n<think>\n<think>\n{Thinking}\n</think>" },
 
     // ── Shared fragments: one value, every engine ────────────────────────────
@@ -172,7 +364,7 @@ export const MEGUMIN_SLOT_REGISTRY = [
       ] },
     { key: "userControl", trigger: "[[user]]", label: "Never Write For {{user}}", scope: "shared", group: "systems",
       gate: GATE.notCoWriter,
-      hint: "Sent on every engine except the Co-writer variants, which are built to write {{user}}. The last line of the final reminder. Older presets number that list by hand, so keep it written as a numbered line; on V11 the number is counted for you.",
+      hint: "Sent on every preset except the Co-writer variants, which are built to write {{user}}. The last line of the final reminder. Older presets number that list by hand, so keep it written as a numbered line; on V11 the number is counted for you.",
       fallback: () => "5. The response does not speak, think, feel, or act for {{user}}, and it shows everything {{user}} reached for." },
     { key: "finalChecks", trigger: "[[final_checks]]", label: "Final Checks", scope: "shared", group: "systems",
       hint: "The checks at the top of the final reminder, one per line. They are numbered for you.",
@@ -201,10 +393,46 @@ export const MEGUMIN_SLOT_REGISTRY = [
       fallback: () => FORMATTING_RULES },
 
     // ── Shared fragments that happen to be output blocks ─────────────────────
-    { key: "info", trigger: "[[infoblock]]", carrier: "blocks", label: "World State Block", scope: "shared", group: "blocks",
+    // The old World State block text. Nothing sends it any more (World State
+    // writes its own rules, below), so it is hidden; the tag stays for the
+    // leak guard.
+    { key: "info", trigger: "[[infoblock]]", hidden: true, carrier: "blocks", label: "World State Block (old)", scope: "shared", group: "blocks",
       gate: GATE.block("info"), hint: "The scene board printed under each reply.",
       fallback: () => blockText("info") },
-    { key: "cyoa", trigger: "[[cyoa]]", carrier: "blocks", label: "Choice Block", scope: "shared", group: "blocks",
+
+    // ── Rules built by the blocks themselves (no tag of their own in the preset).
+    // The text is read where it is built (src/prompts/edits.js); the trigger is
+    // only a name. {{tokens}} are filled from your settings when it is sent.
+    { key: "worldFullRules", trigger: "[[world_full_rules]]", carrier: "blockRules", label: "World State: full scene rules",
+      scope: "shared", group: "blocks", gate: GATE.world,
+      hint: "Asked when the scene is written in full: the first reply, Rewrite next reply, or \"Full update each time\". Also given to Chomusuke when it writes World State. "
+          + "{{threads}}, {{seeds}}, {{timers}} and {{offscreen}} are filled in from the Limits in the World State tab.",
+      fallback: () => worldPromptDefault("bootstrap", "rules") },
+    { key: "worldFullTemplate", trigger: "[[world_full_template]]", carrier: "blocks", label: "World State: full scene template",
+      scope: "shared", group: "blocks", gate: GATE.world,
+      hint: "The <World_State> lines to fill in when the scene is written in full. Keep the labels as they are (Time:, Loc:, Name.Outfit:…): the story's answer is read by them. "
+          + "{{threads}}, {{seeds}}, {{timers}} and {{offscreen}} are filled in from the Limits.",
+      fallback: () => worldPromptDefault("bootstrap", "template") },
+    { key: "worldUpdateRules", trigger: "[[world_update_rules]]", carrier: "blockRules", label: "World Update rules",
+      scope: "shared", group: "blocks", gate: GATE.world,
+      hint: "Asked on the replies after the scene is on file: write only what changed. Also given to Chomusuke. Keep the line forms as they are (Name.Field:, Thread+:, Timer-:…): the answer is read by them. "
+          + "{{threads}}, {{seeds}}, {{timers}} and {{offscreen}} are filled in from the Limits.",
+      fallback: () => worldPromptDefault("update", "rules") },
+    { key: "worldUpdateTemplate", trigger: "[[world_update_template]]", carrier: "blocks", label: "World Update template",
+      scope: "shared", group: "blocks", gate: GATE.world,
+      hint: "The <World_Update> block the story fills in.",
+      fallback: () => worldPromptDefault("update", "template") },
+    { key: "bondsRules", trigger: "[[bonds_rules]]", carrier: "blockRules", label: "Bonds rules",
+      scope: "shared", group: "blocks", gate: GATE.stat("bonds", "Bonds"),
+      hint: "How the story writes Bonds. The line to fill in comes from the fields in the Blocks tab. "
+          + "{{start}} is filled with the starting values and {{meters}} with the meters' names, from those fields.",
+      fallback: p => bondsRulesText(statFieldsOf(p, "bonds"), { tokens: true }) },
+    { key: "sheetRules", trigger: "[[sheet_rules]]", carrier: "blockRules", label: "Character Sheet rules",
+      scope: "shared", group: "blocks", gate: GATE.stat("sheet", "Character Sheet"),
+      hint: "How the story writes {{user}}'s sheet. The lines to fill in come from the fields in the Blocks tab. "
+          + "{{start}} is filled with the starting values and {{meters}} with the meters' names, from those fields.",
+      fallback: p => sheetRulesText(statFieldsOf(p, "sheet"), { tokens: true }) },
+    { key: "cyoa", trigger: "[[cyoa]]", carrier: "blocks", label: "Choices Block", scope: "shared", group: "blocks",
       gate: GATE.block("cyoa"), hint: "The numbered options offered at the end of a reply.",
       fallback: () => blockText("cyoa") },
     { key: "mvu", trigger: "[[MVU]]", label: "MVU Variables", scope: "shared", group: "blocks",
@@ -222,20 +450,23 @@ export const MEGUMIN_SLOT_REGISTRY = [
       gate: GATE.plan, hint: "Arc, chapter and secrets, printed for the Story Director.",
       fallback: () => "# at the very end of the response put this block:\n<Story_Tracker>\narc: The Arc that is now active.\nchapter: The chapter that is now active.\nEpisode: The episode that is now active.\nSecrets: Any secret that the user/{{user}} doesn't know.\n</Story_Tracker>" },
 
+    // ── Plan 024: every other text the story model or Chomusuke is sent ──
+    ...EDITABLE_TEXTS,
+
     // ── Computed from your settings. Overridable, but rarely worth it ────────
     { key: "language", trigger: "[[Language]]", label: "Language Rule", scope: "auto", group: "global",
-      overridable: true, where: "Language & Add-ons",
-      hint: "Built from the language you picked in the Language & Add-ons tab." },
+      overridable: true, where: "Writing Style → Language & rules",
+      hint: "Built from the language you picked on Writing Style → Language & rules." },
     { key: "pronouns", trigger: "[[pronouns]]", label: "Your Pronouns", scope: "auto", group: "global",
-      overridable: true, where: "Language & Add-ons",
-      hint: "Built from the pronouns you picked in the Language & Add-ons tab." },
+      overridable: true, where: "Writing Style → Language & rules",
+      hint: "Built from the pronouns you picked on Writing Style → Language & rules." },
     { key: "count", trigger: "[[count]]", label: "Word Count", scope: "auto", group: "global",
       overridable: true, deprecated: true, where: "Preset & Thinking",
-      hint: "Superseded by Length in Story Config. Always sent empty unless you override it here." },
+      hint: "Superseded by Length in Story settings. Always sent empty unless you override it here." },
 
     // ── Filled live by a feature. Nothing to edit ────────────────────────────
-    { key: null, trigger: "[[config]]", label: "Story Config", scope: "auto", group: "live", where: "Preset & Thinking",
-      hint: "The <config> block built from your Story Config choices." },
+    { key: null, trigger: "[[config]]", label: "Story settings", scope: "auto", group: "live", where: "Preset & Thinking",
+      hint: "The <config> block built from your Story settings choices." },
     { key: null, trigger: "[[infoblockcurrent]]", label: "Current World State", scope: "auto", group: "live", where: "Blocks",
       hint: "The current compiled World State context on file, injected right above <Blocks> when in delta update mode." },
     { key: null, trigger: "[[notebook]]", label: "Author's Notebook", scope: "auto", group: "live", where: "Blocks",
@@ -256,13 +487,13 @@ export const MEGUMIN_SLOT_REGISTRY = [
     // new each turn at the end. Older presets use the combined slots above.
     { key: null, trigger: "[[block_rules]]", label: "Block Rules", scope: "auto", group: "live", where: "Blocks",
       hint: "How to fill World State and the Notebook, sent up top. The blocks to write this turn are in This Turn." },
-    { key: null, trigger: "[[dice_rules]]", label: "Dice Rules", scope: "auto", group: "live", where: "Language & Add-ons",
+    { key: null, trigger: "[[dice_rules]]", label: "Dice Rules", scope: "auto", group: "live", where: "Writing Style → Language & rules",
       gate: GATE.addon("dice"), hint: "The Dice rules without this turn's numbers. Edit them in Dice; the numbers are in This Turn." },
     { key: null, trigger: "[[img_rules]]", label: "Image Rules (top)", scope: "auto", group: "live", where: "Images",
       hint: "How to write an image tag, sent up top. This Turn says when one is due, with the characters in the scene." },
     { key: null, trigger: "[[npc_rules]]", label: "NPC Rules (top)", scope: "auto", group: "live", where: "NPC Bank",
       hint: "How to write a new character's dossier and update a known one, sent up top. Built from the NPC Bank's fields." },
-    { key: null, trigger: "[[addon_rules]]", label: "Add-on Rules", scope: "auto", group: "live", where: "Language & Add-ons",
+    { key: null, trigger: "[[addon_rules]]", label: "Add-on Rules", scope: "auto", group: "live", where: "Writing Style → Language & rules",
       hint: "The add-ons you switched on (Death, Combat, Organic NPCs, Immersive HTML, Onomatopoeia), each in its own section, sent up top." },
     { key: null, trigger: "[[storyplan_rules]]", label: "Story Director: Unrestricted Content", scope: "auto", group: "live", where: "Story Director",
       gate: GATE.plan, hint: "The Story Director's unrestricted content rule, sent up top." },
@@ -279,7 +510,7 @@ export const MEGUMIN_SLOT_REGISTRY = [
     { key: null, trigger: "[[npc_dossier]]", label: "NPC Dossier Rules", scope: "auto", group: "live", where: "NPC Bank",
       hint: "Instructions for keeping dossiers up to date. Not the dossiers themselves." },
     { key: null, trigger: "[[npc_events]]", label: "Organic NPCs & Events", scope: "auto", group: "live",
-      where: "Language & Add-ons", gate: GATE.addon("npc_events"),
+      where: "Writing Style → Language & rules", gate: GATE.addon("npc_events"),
       hint: "Stops new characters appearing out of nowhere." },
     { key: null, trigger: "[[storyplan]]", label: "Story Plan", scope: "auto", group: "live", where: "Story Director",
       gate: GATE.plan, hint: "The current directive from the Story Director." },
@@ -287,7 +518,7 @@ export const MEGUMIN_SLOT_REGISTRY = [
       hint: "Instructions for emitting image prompts." },
     { key: null, trigger: "[[aiprompt]]", label: "Narration Style", scope: "auto", group: "live",
       where: "Writing Style",
-      hint: "Your writing style, wrapped differently depending on the engine generation." },
+      hint: "Your writing style, wrapped differently depending on the preset generation." },
     { key: null, trigger: "[[style]]", label: "Writing Style (as written)", scope: "auto", group: "live",
       where: "Writing Style",
       hint: "The style you picked, exactly as written, for presets that say \"You narrate as [[style]]\". Falls back to V11 Default." },
@@ -398,11 +629,16 @@ export function meguminModuleTrigger(attachPoint) {
 }
 
 export const SLOT_GROUPS = [
-    { id: "engine", label: "The Engine's Own Rules", hint: "Belongs to this engine. Editing means saving your own copy." },
+    { id: "engine", label: "The Preset's Own Rules", hint: "Belongs to this preset. Editing means saving your own copy." },
     { id: "reasoning", label: "Reasoning" },
     { id: "systems", label: "Systems" },
     { id: "format", label: "Formatting" },
     { id: "blocks", label: "Output Blocks" },
+    { id: "v11", label: "V11 Preset Rules", hint: "What a V11 preset sends in place of the boxes above while those are not edited." },
+    { id: "scene", label: "Scene & Names" },
+    { id: "notebook", label: "Author's Notebook" },
+    { id: "chomusuke", label: "Chomusuke" },
+    { id: "imagev2", label: "Images (V2)" },
     { id: "global", label: "Built From Your Settings" },
     { id: "live", label: "Filled In Automatically" },
 ];

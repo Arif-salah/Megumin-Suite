@@ -20,7 +20,7 @@ import { applyEnhancedDialogue } from "../../data/modes/v10.js";
 import { blocksEnvelopeParts, buildBlocksEnvelope, blockRulesText, blocksSkeletonSplit } from "../features/blocks/registry.js";
 import { buildConfigBlock } from "../features/storyconfig/config.js";
 import { npcBuildTextFromData } from "../features/npc/data.js";
-import { imageInjectionNpcTags, imageV2InlineInstruction, imageV2InlineSplit, imageViaChomusuke } from "../features/imagegen/index.js";
+import { imageInjectionNpcTags, imageV2InlineInstruction, imageV2InlineSplit, imageViaChomusuke, imageStoryModelBlocked } from "../features/imagegen/index.js";
 import { npcBuildDossierPrompt, npcBuildUpdatePrompt, npcBuildDossierPromptSplit, npcBuildUpdatePromptSplit } from "../features/npc/fields.js";
 import { memGetCachedKeywords } from "../features/memory/keywords.js";
 import { memGetRelevantVaultEntries } from "../features/memory/index.js";
@@ -30,10 +30,12 @@ import { thinkingSection, formattingSection, bannedSection, reminderSection, thi
 import { DICE_ROLLS_POINTER, IMAGE_ASK_OLD, IMAGE_ASK_NEW, diceTurnLine, imageTurnLine } from "../prompts/presetFrame.js";
 import {
     DICE_RULES_PLAYER, DICE_RULES_EVERYONE, wrapImageRules, wrapNpcRules, npcKnownNames,
-    ADDON_RULES_SPLIT, wrapAddon, sameText, wrapRepetition, languageLine, BAN_ADDITIONS,
+    ADDON_RULES_SPLIT, wrapAddon, sameText, wrapRepetition, languageLine, BAN_ADDITIONS, GEMINI_JB, GEMINI_CARET_LINE,
 } from "../prompts/v11Rules.js";
+import { usesCaretWords } from "./caretWords.js";
 import { V11_BAN_LIST, SHORT_BAN_LIST } from "../../data/modes/v11taina.js";
 import { resolveSlot, getSharedFragment } from "../core/sharedFragments.js";
+import { editable } from "../prompts/edits.js";
 import { worldPromptBlock, statsPromptParts, notebookPromptBlock, notebookCurrentPhase } from "../state/index.js";
 import { NOTEBOOK_CRAFT } from "../prompts/notebook.js";
 import { meguminCleanChatHistoryText } from "./chatText.js";
@@ -150,6 +152,9 @@ export function buildBaseDict(isTokenCount = false) {
         dict["[[COT]]"] = "";
         dict["[[prefill]]"] = "";
     }
+
+    // The Gemini JB add-on's line; empty (and its line removed) otherwise.
+    dict["[[GeminiJB]]"] = usesCaretWords(localProfile) ? editable("geminiJB", GEMINI_JB) : "";
 
     if (localProfile.dnRatio && localProfile.dnRatio.enabled) {
         const d = localProfile.dnRatio.dialogue;
@@ -331,7 +336,7 @@ export function buildBaseDict(isTokenCount = false) {
         // The V11 wording while the rules are the built-in ones; your own
         // rules are kept, pointed at <turn_notes>.
         dict["[[dice_rules]]"] = sameText(dict[item.trigger], item.content)
-            ? (aId === "dice_all" ? DICE_RULES_EVERYONE : DICE_RULES_PLAYER)
+            ? (aId === "dice_all" ? editable("v11DiceRulesEveryone", DICE_RULES_EVERYONE) : editable("v11DiceRulesPlayer", DICE_RULES_PLAYER))
             : dict[item.trigger].replace("[[dice_rolls]]", DICE_ROLLS_POINTER);
         diceRollsLine = diceTurnLine(rolls);
         dict[item.trigger] = dict[item.trigger].replace("[[dice_rolls]]", rolls.join(", "));
@@ -459,8 +464,11 @@ export function buildBaseDict(isTokenCount = false) {
 
         // Chomusuke writes the automatic images after the reply (imagegen/auto.js),
         // so the story model is not asked for an <img> tag at all.
-        if (imageViaChomusuke()) shouldInject = false;
-        const storyModelDraws = ["always", "frequency", "conditional"].includes(mode) && !imageViaChomusuke();
+        // Qwen Image (plan 026): its prompts are too long for the reply, so the
+        // story model never writes them; Chomusuke or the Draw button does.
+        const storyModelOff = imageViaChomusuke() || imageStoryModelBlocked();
+        if (storyModelOff) shouldInject = false;
+        const storyModelDraws = ["always", "frequency", "conditional"].includes(mode) && !storyModelOff;
 
         if (shouldInject || storyModelDraws) {
             const customIg = localProfile.imageGen.customPromptsEnabled ? (localProfile.imageGen.customPrompts || {}) : {};
@@ -851,12 +859,9 @@ export function buildBaseDict(isTokenCount = false) {
     dict["[[formatting]]"] = formattingSection({
         dnratio: dict["[[DNRATIO]]"], color: dict["[[COLOR]]"], rules: slotText("[[formatting_rules]]"),
         direct: dict["[[Direct]]"], frame,
+        extra: usesCaretWords(localProfile) ? editable("geminiCaret", GEMINI_CARET_LINE) : "",
     });
     dict["[[banned]]"] = banned;
-    dict["[[reminder]]"] = reminderSection({
-        checks: slotText("[[final_checks]]"), banned: !!banned,
-        presetChecks: slotText("[[reminder_checks]]"), userLine: dict["[[user]]"], frame,
-    });
     dict["[[content]]"] = slotText("[[content]]");
 
     // --- MASTER BLOCK ENVELOPE ---
@@ -875,6 +880,14 @@ export function buildBaseDict(isTokenCount = false) {
     const envelope = blocksEnvelopeParts(dict);
     dict["[[blocks]]"] = buildBlocksEnvelope(envelope);
 
+    // After the envelope (plan 022): the final check asks for the <Blocks>
+    // section only on a turn that has one.
+    dict["[[reminder]]"] = reminderSection({
+        checks: slotText("[[final_checks]]"), banned: !!banned,
+        presetChecks: slotText("[[reminder_checks]]"), userLine: dict["[[user]]"], frame,
+        blocks: envelope.parts.length ? (/^<Scene>/.test(envelope.parts[0]) ? "scene" : true) : false,
+    });
+
     // --- PLAN 018: the V11 preset's two halves ---
     // [[block_rules]] goes up top with [[npc_dossier]], [[dice_rules]] and
     // [[img_rules]]; [[this_turn]] goes last, with only what is new this turn.
@@ -886,9 +899,9 @@ export function buildBaseDict(isTokenCount = false) {
     // and stays out.
     const addonBuiltin = id => (hardcodedLogic.addons.find(a => a.id === id) || {}).content;
     dict["[[addon_rules]]"] = [
-        ["[[onomato]]", "sound", onoBuiltin, (localProfile.onomatopoeia || {}).useStyling ? ADDON_RULES_SPLIT.onomatoStyled : ADDON_RULES_SPLIT.onomato],
-        ["[[death]]", "death", addonBuiltin("death"), ADDON_RULES_SPLIT.death],
-        ["[[combat]]", "combat", addonBuiltin("combat"), ADDON_RULES_SPLIT.combat],
+        ["[[onomato]]", "sound", onoBuiltin, (localProfile.onomatopoeia || {}).useStyling ? editable("v11AddonOnomatoStyled", ADDON_RULES_SPLIT.onomatoStyled) : editable("v11AddonOnomato", ADDON_RULES_SPLIT.onomato)],
+        ["[[death]]", "death", addonBuiltin("death"), editable("v11AddonDeath", ADDON_RULES_SPLIT.death)],
+        ["[[combat]]", "combat", addonBuiltin("combat"), editable("v11AddonCombat", ADDON_RULES_SPLIT.combat)],
         ["[[html]]", "render", addonBuiltin("html"), null],
     ].map(([trigger, tag, builtin, v11]) => {
         const now = dict[trigger];
@@ -918,7 +931,7 @@ function recentStoryText(count = 3) {
 
 // [[infoblockcurrent]]: one <Current_Info> section, or "" when nothing is on file.
 function buildCurrentInfo(worldNotes) {
-    let parts = { bonds: "", sheet: "", chatter: "", tracker: "" };
+    let parts = { bonds: "", sheet: "", chatter: "", tracker: "", custom: [] };
     try { parts = statsPromptParts({ recentText: recentStoryText() }); } catch (e) {
         console.warn("[Megumin Suite] Current Info: could not read the kept blocks.", e);
     }
@@ -927,6 +940,8 @@ function buildCurrentInfo(worldNotes) {
         console.warn("[Megumin Suite] Current Info: could not read the notebook.", e);
     }
     const sections = [];
+    // Plan 022: the names to write in <Scene> and every block.
+    if (parts.names) sections.push(parts.names);
     if (worldNotes) sections.push(worldNotes);
     if (notebook) sections.push(notebook);
     if (parts.bonds) sections.push(`<Bonds_Now>\n${parts.bonds}\n</Bonds_Now>`);
@@ -935,6 +950,8 @@ function buildCurrentInfo(worldNotes) {
     // models copy it and add to it, so it grew every turn.
     if (parts.chatter) sections.push(`<Last_Inner_Chatter>\n<!-- The private thoughts from the last turn. Write new ones for this turn: never copy, repeat or add to these. -->\n${parts.chatter}\n</Last_Inner_Chatter>`);
     if (parts.tracker) sections.push(`<Last_Story_Tracker>\n${parts.tracker}\n</Last_Story_Tracker>`);
+    // Plan 023: custom blocks on "Last one in Current Info", in stack order.
+    for (const c of parts.custom || []) sections.push(c);
     if (!sections.length) return "";
     return [
         "<Current_Info>",

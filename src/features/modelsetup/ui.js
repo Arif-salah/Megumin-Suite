@@ -1,40 +1,33 @@
 // ────────────────────────────────────────────────────────────────────────────
 // Model Setup (plan 018, phase 5): the first tab. Pick your model, see the
 // settings tested for it, and "Use this loadout" applies them, to every
-// character unless you keep it to this one. A loadout not in use shows its own
+// character unless you keep it to this one. A popup lists what it changes
+// before anything is written (plan 020). A loadout not in use shows its own
 // settings, and a change there only changes what Use this loadout will set.
 // The loadout in use shows the real settings (the same ones their tabs show),
-// so changing one here is changing it there. A tab set to Global still goes to
-// every character, and Chomusuke is one setup for all of them.
+// so changing one here is changing it there. A tab set to "Every character"
+// still goes to every character, and Chomusuke is one setup for all of them.
 // Replaces the Model guide popup.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { extension_settings, saveSettingsDebounced } from "../../st.js";
+import { extension_settings, saveSettingsDebounced, Popup, POPUP_TYPE } from "../../st.js";
 import { extensionName } from "../../core/constants.js";
 import { localProfile, _loadedProfileKey } from "../../core/state.js";
 import { getCharacterKey } from "../../core/keys.js";
 import { saveProfileToMemory } from "../../core/profile.js";
-import { meguminIsTabSynced, applyTabKeysToAllProfiles } from "../../core/sync.js";
+import { meguminIsTabSynced, applyTabKeysToAllProfiles, scopeNoun } from "../../core/sync.js";
+import { tabTitle } from "../../ui/tabList.js";
 import { fireRefreshHook, REFRESH } from "../../core/refreshHooks.js";
 import { hardcodedLogic } from "../../../data/database.js";
 import { storyConfigFields, upgradeConfigValue } from "../storyconfig/config.js";
 import { setPresetPage } from "../../ui/tabs/coreAndCot.js";
 import { chomusukeSetupHtml } from "../../ui/modelGuide.js";
 import { chomusukeSwitches } from "../../engine/tasks.js";
-import { card, segmented, switchRow, esc } from "../../ui/controls.js";
+import { card, segmented, switchRow, field, esc } from "../../ui/controls.js";
 import {
-    LOADOUTS, COMING_SOON, V11_STYLE_IDS, loadoutById, settingFor, applyLoadout, changedFromLoadout
+    LOADOUTS, COMING_SOON, V11_STYLE_IDS, loadoutById, settingFor, applyLoadout, changedFromLoadout, loadoutChanges, loadoutWrites
 } from "./loadouts.js";
 
-// The tabs a row opens. Titles are the Global sync keys (core/sync.js); the
-// tab list itself can't be imported from here (ui/tabs.js imports this file).
-const TABS = {
-    preset: "Preset & Thinking",
-    banlist: "Banned Phrases",
-    addons: "Language & Add-ons",
-    chomusuke: "Chomusuke",
-    style: "Writing Style"
-};
 
 // The engines the Preset row offers. Any other preset you are on is listed too.
 const V11_ENGINES = ["v11-voice", "v11-writers-room", "v11-deepseek"];
@@ -78,11 +71,11 @@ const openTab = (tab, page) => {
     fireRefreshHook(REFRESH.SWITCH_TAB, tab);
 };
 
-// A change on the page saves like the same change in its tab, Global sync
-// included. Returns the titles of the tabs it sent to every character.
+// A change on the page saves like the same change in its tab, "Every
+// character" included. Returns the titles of the tabs it sent to every character.
 function saveFor(...tabs) {
     saveProfileToMemory();
-    const sent = tabs.map(t => TABS[t]).filter(title => meguminIsTabSynced(title) && applyTabKeysToAllProfiles(title));
+    const sent = tabs.filter(id => meguminIsTabSynced(id) && applyTabKeysToAllProfiles(id)).map(tabTitle);
     fireRefreshHook(REFRESH.TOKEN_COUNT);
     return sent;
 }
@@ -105,7 +98,7 @@ export function renderModelSetup(c) {
     c.append(`
         <div class="mtab-header">
             <div class="mtab-header-left">
-                <div class="mtab-header-icon" style="background: linear-gradient(135deg, #0ea5e9, #a855f7);"><i class="fa-solid fa-compass"></i></div>
+                <div class="mtab-header-icon" style="background: linear-gradient(135deg, #0ea5e9, var(--c-ai, #a855f7));"><i class="fa-solid fa-compass"></i></div>
                 <div><h2>Model Setup</h2><p>Pick the model you play with, and use the settings I tested for it.</p></div>
             </div>
         </div>
@@ -122,7 +115,7 @@ export function renderModelSetup(c) {
                 <div class="ecard-accent"></div>
                 <div class="ecard-body">
                     <div class="ecard-title"><span><i class="fa-solid ${l.icon}"></i> ${esc(l.name)}</span>
-                        ${inUse ? `<span class="ecard-badge" style="background:rgba(16,185,129,0.15);color:#10b981;"><i class="fa-solid fa-check"></i> In use</span>` : ""}
+                        ${inUse ? `<span class="ecard-badge" style="background:rgba(16,185,129,0.15);color:var(--c-live, #10b981);"><i class="fa-solid fa-check"></i> In use</span>` : ""}
                     </div>
                     <p class="ecard-desc">${esc(l.models)}</p>
                 </div>
@@ -178,14 +171,15 @@ function loadoutCard(l, rerender) {
     $card.append($rows);
 
     const $foot = $(`<div class="msx-foot"></div>`);
-    $foot.append(switchRow({
-        label: "Only this character",
-        desc: onlyThisCharacter
-            ? "The loadout goes to the character you're chatting with. Chomusuke, and any tab you set to Global, still go to every character."
-            : "Off: the loadout goes to every character, and to new ones.",
-        on: onlyThisCharacter,
-        onChange: on => { onlyThisCharacter = on; rerender(); }
-    }));
+    // The same two choices, in the same words, as the top bar's "This tab".
+    const noun = scopeNoun();
+    $foot.append(field("Use it on", onlyThisCharacter
+        ? `This ${noun} only. Chomusuke, and any tab set to "Every ${noun}", still go to every ${noun}.`
+        : `Every ${noun}.`,
+    segmented([
+        { id: "one", label: `This ${noun} only` },
+        { id: "every", label: `Every ${noun}` }
+    ], onlyThisCharacter ? "one" : "every", id => { onlyThisCharacter = id === "one"; rerender(); })));
     const $use = $(`<button type="button" class="menu_button msx-use"><i class="fa-solid fa-check"></i> Use this loadout</button>`);
     $use.on("click", () => useLoadout(l, draft, rerender));
     $foot.append($use);
@@ -197,9 +191,9 @@ function settingRow(s, l, isChanged, draft, rerender) {
     const value = draft ? draft[s.key] : s.read(localProfile, CTX);
     const $row = $(`
         <div class="msx-row">
-            <div class="msx-row-label">${esc(s.label)}${s.desc ? ` <span class="msx-desc">${esc(s.desc)}</span>` : ""}${value === "mixed" ? ` <span class="msx-mixed">Some of these go to Chomusuke, some don't</span>` : ""}${isChanged ? ` <span class="msx-changed" title="The loadout sets ${esc(describe(s.key, l.settings[s.key]))}.">Changed from the loadout</span>` : ""}</div>
+            <div class="msx-row-label">${esc(s.label)}${draft ? ` <span class="msx-preview" title="This loadout isn't in use yet. A change here only changes what Use this loadout will set.">Preview</span>` : ""}${s.desc ? ` <span class="msx-desc">${esc(s.desc)}</span>` : ""}${value === "mixed" ? ` <span class="msx-mixed">Some of these go to Chomusuke, some don't</span>` : ""}${isChanged ? ` <span class="msx-changed" title="The loadout sets ${esc(describe(s.key, l.settings[s.key]))}.">Changed from the loadout</span>` : ""}</div>
             <div class="msx-row-control"></div>
-            <button type="button" class="menu_button msx-open" title="Open ${esc(TABS[s.tab])}"><i class="fa-solid fa-arrow-up-right-from-square"></i> ${esc(TABS[s.tab])}</button>
+            <button type="button" class="menu_button msx-open" title="Open ${esc(tabTitle(s.tab))}"><i class="fa-solid fa-arrow-up-right-from-square"></i> ${esc(tabTitle(s.tab))}</button>
         </div>
     `);
     $row.find(".msx-open").on("click", () => openTab(s.tab, s.page));
@@ -219,7 +213,7 @@ function settingRow(s, l, isChanged, draft, rerender) {
         ids.forEach(id => $sel.append(`<option value="${esc(id)}" ${id === value ? "selected" : ""}>${esc(engineLabel(id))}</option>`));
         $sel.on("change", () => set($sel.val()));
         $ctl.append($sel);
-    } else if (s.key === "thinking" || s.key === "thinkingCap" || s.key === "html") {
+    } else if (s.key === "thinking" || s.key === "thinkingCap" || s.key === "html" || s.key === "geminiJB") {
         $ctl.append(switchRow({ label: value ? "On" : "Off", on: value, onChange: on => set(on) }));
     } else if (s.key === "length") {
         const $sel = $(`<select class="text_pole msx-select"></select>`);
@@ -241,17 +235,51 @@ function engineLabel(id) {
     return m ? m.label : id;
 }
 
-// How a loadout value reads in the "Changed from the loadout" tooltip.
+// How a loadout value reads in the "Changed from the loadout" tooltip and the
+// Use this loadout popup.
 function describe(key, v) {
     if (key === "mode") return engineLabel(v);
-    if (key === "thinking" || key === "thinkingCap" || key === "html") return v ? "on" : "off";
+    if (key === "thinking" || key === "thinkingCap" || key === "html" || key === "geminiJB") return v ? "on" : "off";
     if (key === "banList") return { full: "the full list", short: "the short list", off: "only your phrases" }[v];
-    if (key === "length") return v;
+    if (key === "length") return v === "custom" ? "your own" : (v || "not set");
+    if (key === "style") return styleName(v);
+    if (v === "mixed") return "some jobs on Chomusuke";
     return v === "chomusuke" ? "Chomusuke on" : "Chomusuke off";
 }
 
-function useLoadout(l, draft, rerender) {
+function styleName(id) {
+    if (!id) return "no style";
+    const s = hardcodedLogic.directStyles.find(x => x.id === id)
+        || (localProfile.customStyles || []).find(x => x.id === id);
+    return s ? s.name : id;
+}
+
+// Before anything is written: what changes, and for whom. Resolves true on Use.
+async function confirmLoadout(l, settings) {
+    const noun = scopeNoun();
+    const changes = loadoutChanges(localProfile, l, CTX, settings);
+    const list = changes.length
+        ? `<ul class="msx-changes">${changes.map(c => `<li><b>${esc(c.label)}:</b> ${esc(describe(c.key, c.from))} <i class="fa-solid fa-arrow-right"></i> ${esc(describe(c.key, c.to))}</li>`).join("")}</ul>`
+        : `<p>This ${noun} already has every one of these settings.</p>`;
+    let who;
+    if (!onlyThisCharacter) {
+        who = `<p><b>For every ${noun}.</b> The list is what changes on this one; every other ${noun} gets the same settings.</p>`;
+    } else {
+        const tabs = [...new Set(changes.map(c => c.key === "style" ? "style" : settingFor(c.key).tab))]
+            .filter(id => id !== "chomusuke" && meguminIsTabSynced(id)).map(tabTitle);
+        who = `<p><b>For this ${noun} only.</b>${tabs.length ? ` ${esc(listNames(tabs))} ${tabs.length > 1 ? "are" : "is"} set to "Every ${noun}", so ${tabs.length > 1 ? "their" : "its"} part goes to every ${noun}.` : ""}${changes.some(c => c.key === "chomusuke") ? ` Chomusuke is one setup for every ${noun}.` : ""}</p>`;
+    }
+    const $body = $(`<div style="text-align:left;">
+        <h3 style="margin-top:0;">Use the ${esc(l.name)} loadout?</h3>
+        ${who}
+        ${list}
+    </div>`);
+    return Boolean(await new Popup($body, POPUP_TYPE.CONFIRM, "", { okButton: "Use this loadout", cancelButton: "Cancel" }).show());
+}
+
+async function useLoadout(l, draft, rerender) {
     const settings = draft || l.settings;
+    if (!(await confirmLoadout(l, settings))) return;
     // Same guard as Global sync: the page must belong to the chat that's open,
     // or this character's settings land on another one.
     const liveKey = getCharacterKey() || "default";
@@ -267,17 +295,18 @@ function useLoadout(l, draft, rerender) {
     const styleBefore = localProfile.activeStyleId;
     applyLoadout(localProfile, l, CTX, settings);
     delete drafts[l.id];
+    const noun = scopeNoun();
     if (!onlyThisCharacter) {
         saveProfileToMemory();
         fireRefreshHook(REFRESH.TOKEN_COUNT);
-        toastr.success(`${l.name} is in use on every character.`, "Megumin Suite");
+        toastr.success(`${l.name} is in use on every ${noun}.`, "Megumin Suite");
     } else {
-        // Global sync wins: a tab set to Global goes to every character, as an edit there would.
-        const sent = saveFor(...tabsOf(Object.keys(settings), styleBefore));
+        // A tab set to "Every character" still goes to every character, as an edit there would.
+        const sent = saveFor(...tabsOf(Object.keys(loadoutWrites(settings)), styleBefore));
         const also = sent.length
-            ? ` ${listNames(sent)} ${sent.length > 1 ? "are" : "is"} set to Global, so ${sent.length > 1 ? "their" : "its"} settings went to every character.`
+            ? ` ${listNames(sent)} ${sent.length > 1 ? "are" : "is"} set to "Every ${noun}", so ${sent.length > 1 ? "their" : "its"} settings went to every ${noun}.`
             : "";
-        toastr.success(`${l.name} is in use on this character.${also}${"chomusuke" in settings ? " Chomusuke is the same on every character." : ""}`, "Megumin Suite");
+        toastr.success(`${l.name} is in use on this ${noun}.${also}${"chomusuke" in settings ? ` Chomusuke is the same on every ${noun}.` : ""}`, "Megumin Suite");
     }
     rerender();
 }

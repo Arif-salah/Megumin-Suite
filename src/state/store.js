@@ -42,7 +42,7 @@ function emptyRoot() {
 
 /**
  * @param {{
- *   adapter: { getChat: () => any[], getMeta: () => object|null, saveMeta: () => void, saveChat?: () => void, getUserNames?: () => string[] },
+ *   adapter: { getChat: () => any[], getMeta: () => object|null, saveMeta: () => void, saveChat?: () => void, getUserNames?: () => string[], applyContext?: (moduleId: string) => object },
  *   modules: Record<string, { empty: () => object, parse: (text: string) => object|null, apply: (state: object, parsed: object, ctx: object) => { state: object, applied: any[], notes: string[] } }>,
  *   journalDepth?: number | (() => number),
  *   rootKey?: string
@@ -133,6 +133,25 @@ export function createStateStore({ adapter, modules, journalDepth = 200, rootKey
         return map;
     }
 
+    // What a module's apply gets besides seq and userNames: the settings it
+    // asks for (adapter.applyContext), and the text of the message an entry
+    // belongs to (the shown swipe, with the user's message just before it).
+    // Your own edits and deleted messages have no text.
+    function extraCtx(moduleId) {
+        return (adapter.applyContext && adapter.applyContext(moduleId)) || {};
+    }
+    function entryText(e, present) {
+        if (e.source === "user" || e.orphan) return undefined;
+        const p = present.get(e.uid);
+        if (!p) return undefined;
+        const msg = p.msg;
+        const own = Array.isArray(msg.swipes) && typeof msg.swipes[p.swipe] === "string" ? msg.swipes[p.swipe] : msg.mes;
+        const all = chat();
+        let before = "";
+        for (let i = p.index - 1; i >= 0 && all[i] && all[i].is_user; i--) before = String(all[i].mes || "") + "\n" + before;
+        return before + String(own || "");
+    }
+
     // ── Journal ─────────────────────────────────────────────────────────
     function sortJournal(r) {
         r.journal.sort((a, b) => (a.seq - b.seq) || (a.n - b.n));
@@ -161,8 +180,11 @@ export function createStateStore({ adapter, modules, journalDepth = 200, rootKey
      *            result can land after the user has swiped elsewhere).
      *   parsed — use this result instead of parsing the message text (side model);
      *            null records a missing update.
+     *   facts  — per module, what was true when the reply was written (bonds:
+     *            whose bonds the story could see). Kept with the entry, passed to
+     *            apply as ctx.facts, untouched by a reparse.
      */
-    function recordMessage(index, { source = "reply", expect = false, moduleIds, swipe: forSwipe, parsed: given, raw } = {}) {
+    function recordMessage(index, { source = "reply", expect = false, moduleIds, swipe: forSwipe, parsed: given, raw, facts } = {}) {
         const r = root();
         const msg = chat()[index];
         if (!r || !msg || msg.is_user) return { recorded: [] };
@@ -193,6 +215,7 @@ export function createStateStore({ adapter, modules, journalDepth = 200, rootKey
                 // The text the entry was parsed from when it is not the message
                 // itself (a side model's answer), so a better parser can redo it.
                 ...(typeof raw === "string" ? { raw } : {}),
+                ...(facts && facts[mid] ? { facts: facts[mid] } : {}),
                 missing: !parsed,
                 orphan: false,
                 disabled: false
@@ -347,13 +370,14 @@ export function createStateStore({ adapter, modules, journalDepth = 200, rootKey
         const present = presentMessages();
         const userNames = adapter.getUserNames ? adapter.getUserNames() : [];
         for (const mid of Object.keys(modules)) {
+            const extra = extraCtx(mid);
             let state = r.checkpoint.modules[mid] || modules[mid].empty();
             for (const e of r.journal) {
                 if (e.module !== mid || e.seq > cutSeq || e.disabled) continue;
                 const p = present.get(e.uid);
                 const active = e.source === "user" || e.orphan || (p && p.swipe === e.swipe);
                 if (!active) continue;
-                state = modules[mid].apply(state, e.parsed, { seq: e.seq, userNames }).state;
+                state = modules[mid].apply(state, e.parsed, { ...extra, seq: e.seq, userNames, text: entryText(e, present), facts: e.facts }).state;
             }
             r.checkpoint.modules[mid] = state;
         }
@@ -380,16 +404,18 @@ export function createStateStore({ adapter, modules, journalDepth = 200, rootKey
         const r = root();
         const mod = modules[moduleId];
         if (!r || !mod) return { base: mod ? mod.empty() : null, baseSeq: 0, steps: [] };
-        const key = version + "|" + swipeSignature();
+        const extra = extraCtx(moduleId);
+        const key = version + "|" + swipeSignature() + "|" + JSON.stringify(extra);
         const hit = memo.get(moduleId);
         if (hit && hit.key === key) return hit.timeline;
 
         const userNames = adapter.getUserNames ? adapter.getUserNames() : [];
+        const present = presentMessages();
         const base = r.checkpoint.modules[moduleId] || mod.empty();
         let state = base;
         const steps = [];
         for (const e of activeEntries(moduleId)) {
-            const res = mod.apply(state, e.parsed, { seq: e.seq, userNames });
+            const res = mod.apply(state, e.parsed, { ...extra, seq: e.seq, userNames, text: entryText(e, present), facts: e.facts });
             state = res.state;
             steps.push({ seq: e.seq, entry: e, state, applied: res.applied, notes: res.notes, unannounced: res.unannounced || [] });
         }

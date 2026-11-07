@@ -121,7 +121,10 @@ export function cleanStatName(raw) {
         .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}]/gu, "")
         .replace(/[*_`~]/g, "")
         .replace(/\s*["“][^"”]*["”]\s*/g, " ")
-        .replace(/^[\s\-—–:]+|[\s\-—–:]+$/g, "")
+        // A leading "+" is the scene list's mark for someone new, copied in (plan 022).
+        .replace(/^[\s\-—–:+]+|[\s\-—–:]+$/g, "")
+        // A label a model adds after the name: "Cathleen Cairns (Remote)" (plan 022).
+        .replace(/\s*[(\[]\s*(here|remote|on a call|on the call|on the phone|on the line|present|off-?screen|away)\s*[)\]]\s*$/i, "")
         .replace(/\s+/g, " ")
         .trim();
     if (!n || /^\[.*\]$/.test(n) || n.length > 60) return "";
@@ -175,7 +178,16 @@ export function parseBonds(text) {
  * @returns {null | { kind: "delta", fields: object[] }}
  */
 export function parseSheet(text) {
-    const bodies = extractTagBodies(text, "Character_Sheet");
+    return parseFields(text, "Character_Sheet");
+}
+
+/**
+ * Any block of "Label: value" cells, by its tag: the Sheet, and custom blocks
+ * built from a field list (plan 023).
+ * @returns {null | { kind: "delta", fields: object[] }}
+ */
+export function parseFields(text, tag) {
+    const bodies = extractTagBodies(text, tag);
     if (!bodies.length) return null;
     const fields = [];
     for (const body of bodies) {

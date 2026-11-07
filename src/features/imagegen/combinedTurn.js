@@ -25,9 +25,9 @@ import { runWithChomusuke } from "../../engine/tasks.js";
 import { warnChomusuke, answerKind } from "../../engine/chomusukeNotice.js";
 import { meguminCleanChatHistoryText } from "../../engine/chatText.js";
 import {
-    worldEnabled, worldUpdateMode, worldBeginExternalRead, worldReadInputs,
+    worldEnabled, worldUpdateMode, worldBeginExternalRead, worldReadInputs, notebookCap,
     worldFinishExternalRead, worldRecordMissing, worldExtractMessage,
-    routedBlockIds, blocksBeginRead, blocksReadNotes, blocksFinishRead,
+    routedBlockIds, blocksBeginRead, blocksReadNotes, blocksFinishRead, blocksJobKey,
     notebookViaChomusuke, notebookBeginRead, notebookReadNotes, notebookFinishRead, notebookRecordMissing,
     notebookReadKind
 } from "../../state/index.js";
@@ -38,11 +38,15 @@ import { meguminScheduleBlocksRefresh } from "../blocks/chat.js";
 import { statsModuleParses } from "../../state/index.js";
 import { renderWorldClerkTask, renderClerkNotes } from "../../state/modules/world/render.js";
 import { worldModule } from "../../state/modules/world/index.js";
+import { SCENE_RULES, SCENE_TEMPLATE, sceneClerkRules } from "../../prompts/scene.js";
+import { editable } from "../../prompts/edits.js";
 import { igGenerateWithComfy } from "./comfy.js";
+import { imageBackendName } from "./backend.js";
 import { imageViaChomusuke, dueNow, NOT_A_REPLY, insertPlaceholder, removePlaceholder, unwrapImgTag } from "./auto.js";
 import { classicImageParts, classicImageRulesBlock } from "./classic/prompt.js";
 import { v2Settings, currentImageCast, cleanModelPrompt, getLastImagePrompt } from "./v2/index.js";
-import { renderCastList, renderV2Rules, renderCombinedPrompt, splitCombinedAnswer } from "./v2/prompt.js";
+import { renderCastList, renderV2Rules, renderCombinedPrompt, splitCombinedAnswer, wantsLookDetail } from "./v2/prompt.js";
+import { qwenArtStyleText } from "../../prompts/imageGenV2.js";
 import { storeOutfitTags, storeNewLooks, takeLookAttempts, releaseLookAttempts, warnLooklessInScene, warnLooksNotMade, sheetSourceFor } from "./v2/looks.js";
 import { inImage, needsLook } from "./v2/cast.js";
 import { imageGenEngine } from "./index.js";
@@ -92,6 +96,16 @@ function earlierStory(index, count = 4) {
         .map(m => `${m.name}: ${meguminCleanChatHistoryText(m.mes)}`).join("\n\n");
 }
 
+// Plan 022: a reply that wrote no <Scene> gets one from Chomusuke, in the
+// same answer, right after the World block (filed with the World update).
+function withScene(task, needScene) {
+    if (!needScene) return task;
+    return { ...task, rules: `${task.rules}
+
+${sub(sceneClerkRules(editable("sceneRules", SCENE_RULES)))}`, template: `${task.template}
+${editable("sceneTemplate", SCENE_TEMPLATE)}` };
+}
+
 /**
  * Runs the combined call for one reply. Resolves when everything is filed and
  * the image (if any) has been sent to ComfyUI. Never throws.
@@ -122,7 +136,7 @@ export async function runCombinedTurn(messageId, type, plan) {
     let failure = null;
     const parts = [token && "worldState", bToken && "blocks", nToken && "notebook", wantImage && "imageGen"].filter(Boolean);
     try {
-        raw = await runWithChomusuke(wantImage ? "imageGen" : token ? "worldState" : bToken ? "blocks" : "notebook", async () => {
+        raw = await runWithChomusuke(wantImage ? "imageGen" : token ? "worldState" : bToken ? blocksJobKey(bToken.ids) : "notebook", async () => {
             // Built when this job has the worker, so it sees whatever landed before it.
             const w = token ? worldReadInputs(token) : null;
             const exchange = w ? w.exchange : exchangeText(index, String((bToken && bToken.text) || (nToken && nToken.text) || message.mes || ""));
@@ -131,21 +145,22 @@ export async function runCombinedTurn(messageId, type, plan) {
                 sheets: w ? w.sheets : "",
                 earlier: earlierStory(index),
                 exchange,
-                world: w ? renderWorldClerkTask(w.mode, { noSecret: w.noSecret }) : null,
+                world: w ? withScene(renderWorldClerkTask(w.mode, { noSecret: w.noSecret, carry: w.carry, noLimits: w.noLimits }), w.needScene) : null,
                 image: wantImage,
                 onlyIfPhoto: (ig.triggerMode || "always") === "conditional",
                 blocks: bToken ? { notes: blocksReadNotes(bToken, exchange), tasks: blocksTasksFor(bToken.ids) } : null,
                 notebook: !nToken ? null
                     : nToken.kind === "setup"
-                        ? { notes: `<Character_Sheet>\n${notebookSheetText()}\n</Character_Sheet>`, task: renderNotebookSetupTask(), setup: true }
+                        ? { notes: `<Character_Sheet>\n${notebookSheetText()}\n</Character_Sheet>`, task: renderNotebookSetupTask({ cap: notebookCap() }), setup: true }
                         : { notes: notebookReadNotes(nToken), task: renderNotebookClerkTask() }
             };
             if (!wantImage) {
                 built = renderCombinedPrompt(common);
             } else if (engine === "v2") {
                 const cast = currentImageCast();
-                const detailed = cfg.outfitTags && cfg.style === "tags";
-                staleBefore = detailed ? cast.filter(m => m.outfitStale && inImage(m, cfg.shot)) : [];
+                // Plan 027: outfit tags by part for every style.
+                const detailed = true;
+                staleBefore = cast.filter(m => m.outfitStale && inImage(m, cfg.shot));
                 missingLooks = cfg.autoLooks === false ? [] : takeLookAttempts(getContext()?.chatId, cast.filter(m => needsLook(m, cfg.shot)));
                 warnLooklessInScene(getContext()?.chatId, cast, cfg.shot, missingLooks);
                 built = renderCombinedPrompt({
@@ -153,12 +168,14 @@ export async function runCombinedTurn(messageId, type, plan) {
                     engine: "v2",
                     castList: renderCastList(cast, { shot: cfg.shot, method: cfg.method, lookPending: missingLooks.map(m => m.name) }),
                     sheets: missingLooks.length ? await sheetSourceFor(missingLooks) : common.sheets,
-                    imageRules: renderV2Rules({ style: cfg.style, shot: cfg.shot, extra: cfg.extra, method: cfg.method, focus: cfg.focus }),
+                    imageRules: renderV2Rules({ style: cfg.style, shot: cfg.shot, extra: cfg.extra, method: cfg.method, focus: cfg.focus,
+                        artStyle: qwenArtStyleText(cfg.artStyle, cfg.artStyleCustom), text: cfg.textInImages === true }),
                     previous: cfg.method === "reference" ? getLastImagePrompt() : null,
                     extras: {
                         outfits: staleBefore.map(m => ({ name: m.name, outfit: m.outfitText })),
                         looks: missingLooks.map(m => m.name),
-                        followUpdate: detailed
+                        followUpdate: detailed,
+                        detail: wantsLookDetail(cfg.style)
                     }
                 });
             } else {
@@ -259,7 +276,7 @@ export async function runCombinedTurn(messageId, type, plan) {
         return true;
     }
     tell();
-    toastr.info("Sending to ComfyUI...", "Megumin Suite");
+    toastr.info(`Sending to ${imageBackendName()}...`, "Megumin Suite");
     igGenerateWithComfy(prompt, { message, index, mode: inline ? "inline" : "new_msg", isInlineAuto: true, placeholderId: id });
     return true;
 }

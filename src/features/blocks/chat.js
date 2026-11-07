@@ -18,10 +18,14 @@ import { npcDecorateNewPane } from "../npc/newCard.js";
 import { worldCardTextAt, worldExtractMessage, blocksCardTextAt, notebookCardTextAt } from "../../state/index.js";
 import { blocksReadForReply } from "./worker.js";
 import { bondsDecoratePane, sheetDecoratePane } from "../bonds/overview.js";
-import { worldDecoratePane } from "../worldstate/card.js";
+import { customDecoratePane } from "./customEditor.js";
+import { worldDecoratePane, worldDecorateCast, worldTabCount } from "../worldstate/card.js";
 import { openWorldEditor } from "../worldstate/editor.js";
 import { NOTEBOOK_CARD_DEFS, notebookDecoratePane, notebookCardStamp } from "../notebook/card.js";
 import { notebookReadForReply } from "../notebook/worker.js";
+
+// The scene list (plan 022) is for the extension: taken out of the message, no tab.
+const SCENE_CARD_DEF = { id: "scene", tag: "Scene", label: "Scene", visibility: "hidden" };
 
 // ── Clicking a choice ────────────────────────────────────────────────────────
 //
@@ -58,7 +62,9 @@ function meguminApplyChoice(text, { send = false } = {}) {
     // do is send itself. Tested on the composed message rather than on the
     // choice, because a slash only commands when it leads the line.
     if (/^\s*\//.test(ta.value)) {
-        console.debug(`[${extensionName}] choice not sent: the message would lead with a slash command`);
+        // Said out loud now that the arrow sends (plan 020): a send that does
+        // nothing, with no word why, looks broken.
+        toastr.info("Not sent: it starts with \"/\", which SillyTavern reads as a command. It's in the input for you to change.", "Choices");
         return;
     }
 
@@ -140,6 +146,9 @@ export function meguminDecorateMessageBody(bodyEl, mesText, msgIndex) {
         Object.entries(fromWorker).forEach(([tag, b]) => {
             storeBlocks[tag] = b.status === "ok" ? b.body
                 : b.status === "pending" ? (b.body || "*Writing this block…*")
+                // Plan 023: a custom block written "Only when it changes".
+                : b.status === "unchanged" ? "*No change this reply.*"
+                : b.status === "unavailable" ? "*Not written: Chomusuke writes this block, and Chomusuke is off or has no connection. Set it up in the Chomusuke tab, or have the story write this block (Blocks tab, edit the block).*"
                 : "*Nothing was written for this block. Use Read again.*";
         });
         // Plan 010: notebook lines Chomusuke wrote, on a reply that has no notebook block.
@@ -147,7 +156,7 @@ export function meguminDecorateMessageBody(bodyEl, mesText, msgIndex) {
         if (nbText) storeBlocks.Notebook_Update = nbText;
         // The notebook is not a block in the stack, but its blocks are drawn
         // (behind a spoiler) on every reply that wrote one, on or off.
-        applyBlocksToMessage(bodyEl, mesText, [...meguminRenderRegistry(), ...NOTEBOOK_CARD_DEFS], {
+        applyBlocksToMessage(bodyEl, mesText, [...meguminRenderRegistry(), ...NOTEBOOK_CARD_DEFS, SCENE_CARD_DEF], {
             msgIndex,
             worldStateText: wsText,
             storeBlocks,
@@ -173,8 +182,14 @@ export function meguminDecorateMessageBody(bodyEl, mesText, msgIndex) {
             if (bondsPane) bondsDecoratePane(bondsPane);
             const sheetPane = bodyEl.querySelector('.meg-block-body[data-block-id="sheet"]');
             if (sheetPane) sheetDecoratePane(sheetPane);
+            // Plan 023: an Edit button on each custom block's tab.
+            meguminRenderRegistry().filter(d => !d.builtin).forEach(d => {
+                const pane = bodyEl.querySelector(`.meg-block-body[data-block-id="${d.id}"]`);
+                if (pane) customDecoratePane(pane, d.id);
+            });
             // Blocks Chomusuke wrote: a Read again button on each of their tabs.
             Object.values(fromWorker).forEach(b => {
+                if (b.status === "unavailable") return;   // nothing to read with
                 const pane = bodyEl.querySelector(`.meg-block-body[data-block-id="${b.id}"]`);
                 if (pane) blocksDecorateReadAgain(pane, msgIndex, b.status === "pending");
             });
@@ -184,11 +199,15 @@ export function meguminDecorateMessageBody(bodyEl, mesText, msgIndex) {
                     onReread: () => { notebookReadForReply(msgIndex, { force: true }); }
                 }));
             const wsPane = bodyEl.querySelector('.meg-block-body[data-block-id="world"]');
-            if (wsPane) worldDecoratePane(wsPane, msgIndex, {
-                onEdit: () => openWorldEditor(),
-                onChanged: () => meguminScheduleBlocksRefresh(),
-                onReread: () => { worldExtractMessage(msgIndex, { force: true }); }
-            });
+            if (wsPane) {
+                worldDecoratePane(wsPane, msgIndex, {
+                    onEdit: () => openWorldEditor(),
+                    onChanged: () => meguminScheduleBlocksRefresh(),
+                    onReread: () => { worldExtractMessage(msgIndex, { force: true }); }
+                });
+                worldDecorateCast(wsPane, msgIndex, () => meguminScheduleBlocksRefresh());
+                worldTabCount(bodyEl, msgIndex);
+            }
         }
     } catch (e) {
         // Fail visible: the reader keeps the raw block text, which is exactly

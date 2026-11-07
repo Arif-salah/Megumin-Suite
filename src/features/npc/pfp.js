@@ -16,13 +16,30 @@ import { setActiveNpcPfpRequest } from "../../core/activeRequests.js";
 import { showKazumaProgress } from "../../ui/progress.js";
 import { npcBuildTextFromData } from "./data.js";
 import { comfyBase } from "../imagegen/comfyUrl.js";
+import { imageBackend, imageBackendName, generateWithSillyTavern } from "../imagegen/backend.js";
+
+// An image (a data URL or a file address) as a JPEG data URL, as NPC portraits are kept.
+async function toJpegDataUrl(src, quality = 0.85) {
+    let dataUrl = src;
+    if (!/^data:/i.test(src)) {
+        const blob = await (await fetch(src)).blob();
+        dataUrl = await new Promise(r => { const reader = new FileReader(); reader.onloadend = () => r(reader.result); reader.readAsDataURL(blob); });
+    }
+    return new Promise(r => {
+        const img = new Image(); img.src = dataUrl;
+        img.onload = () => { const cvs = document.createElement("canvas"); cvs.width = img.width; cvs.height = img.height; cvs.getContext("2d").drawImage(img, 0, 0); r(cvs.toDataURL("image/jpeg", quality)); };
+        img.onerror = () => r(dataUrl);
+    });
+}
 
 // Generate NPC portrait via ComfyUI — uses AI to generate the prompt from full NPC info
 
 export async function npcGeneratePfp(npcName) {
     const s = localProfile.imageGen;
-    if (!s || !s.enabled || !s.currentWorkflowName) {
-        toastr.warning("Turn on Images and set up ComfyUI in the Images tab first.");
+    // Plan 028: with SillyTavern's Image Generation picked, portraits go there too.
+    const viaST = imageBackend() === "st";
+    if (!s || !s.enabled || (!viaST && !s.currentWorkflowName)) {
+        toastr.warning(viaST ? "Turn on Images in the Images tab first." : "Turn on Images and set up ComfyUI in the Images tab first.");
         return null;
     }
 
@@ -106,7 +123,30 @@ export async function npcGeneratePfp(npcName) {
         return null;
     }
 
-    toastr.info("Sending portrait prompt to ComfyUI...", "NPC Bank");
+    toastr.info(`Sending portrait prompt to ${imageBackendName()}...`, "NPC Bank");
+
+    // The portrait is saved on the NPC, so the chat must still be the one it was made for.
+    const keepPortrait = (img) => {
+        if (meguminActiveDataIdentity() !== pfpIdentity) {
+            console.debug(`[Megumin-Suite] NPC portrait declined: it was generated for "${pfpIdentity}" but "${meguminActiveDataIdentity()}" is active now. The image was dropped rather than attached to a stale NPC record.`);
+            return null;
+        }
+        npc.pfp = img;
+        saveProfileToMemory();
+        toastr.success(`Portrait generated for ${npcName}!`);
+        fireRefreshHook(REFRESH.NPC_LIST);
+        return img;
+    };
+
+    if (viaST) {
+        let url = "";
+        try { url = await generateWithSillyTavern(promptText); }
+        catch (e) { toastr.error("SillyTavern's Image Generation extension is off. Turn it on in SillyTavern's Extensions, or pick ComfyUI on the Generator page of the Images tab.", "NPC Bank", { timeOut: 10000 }); return null; }
+        if (!url) return null;
+        try { return keepPortrait(await toJpegDataUrl(url)); }
+        catch (e) { console.error("[Megumin-Suite] NPC portrait could not be read back:", e); toastr.error("The portrait was made, but it could not be saved on the NPC."); return null; }
+    }
+
     showKazumaProgress("Rendering NPC Portrait...");
 
     // Step 2: Send the AI-generated prompt to ComfyUI
@@ -167,30 +207,8 @@ export async function npcGeneratePfp(npcName) {
                         }
                         if (finalImage) {
                             const imgUrl = `${comfyBase(s.comfyUrl)}/view?filename=${finalImage.filename}&subfolder=${finalImage.subfolder}&type=${finalImage.type}`;
-                            const response = await fetch(imgUrl); const blob = await response.blob();
-                            const base64 = await new Promise((r) => { const reader = new FileReader(); reader.onloadend = () => r(reader.result); reader.readAsDataURL(blob); });
-
-                            // Compress to JPEG
-                            const compressed = await new Promise((r) => {
-                                const img = new Image(); img.src = base64;
-                                img.onload = () => { const cvs = document.createElement('canvas'); cvs.width = img.width; cvs.height = img.height; cvs.getContext('2d').drawImage(img, 0, 0); r(cvs.toDataURL("image/jpeg", 0.85)); };
-                                img.onerror = () => r(base64);
-                            });
-
-                            // A stale `npc` is a detached object from the old profile: the
-                            // portrait would vanish with it, and renderNpcList() would
-                            // repaint the panel with the wrong chat's bank.
-                            if (meguminActiveDataIdentity() !== pfpIdentity) {
-                                console.debug(`[Megumin-Suite] NPC portrait declined: it was generated for "${pfpIdentity}" but "${meguminActiveDataIdentity()}" is active now. The image was dropped rather than attached to a stale NPC record.`);
-                                $("#kazuma_progress_overlay").hide();
-                                resolve(null);
-                                return;
-                            }
-                            npc.pfp = compressed;
-                            saveProfileToMemory();
+                            const compressed = keepPortrait(await toJpegDataUrl(imgUrl));
                             $("#kazuma_progress_overlay").hide();
-                            toastr.success(`Portrait generated for ${npcName}!`);
-                            fireRefreshHook(REFRESH.NPC_LIST);
                             resolve(compressed);
                         } else {
                             $("#kazuma_progress_overlay").hide();

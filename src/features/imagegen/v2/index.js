@@ -15,15 +15,18 @@ import { bgPreviewOpen } from "../../../engine/bgPrompts.js";
 import { waitUnlessStuck } from "./waitFor.js";
 import { buildImageCast, inImage, needsLook } from "./cast.js";
 import { resolveImagePrompt } from "./resolve.js";
-import { renderCastList, renderV2Rules, renderV2ManualPrompt, renderV2InlineInstruction, renderV2InlineSplit, renderV2Extras, splitCombinedAnswer } from "./prompt.js";
-import { refreshOutfitTags, storeOutfitTags, storeNewLooks, takeLookAttempts, releaseLookAttempts, warnLooklessInScene, warnLooksNotMade, sheetSourceFor, looksSettled, looksBeingRead } from "./looks.js";
+import { renderCastList, renderV2Rules, renderV2ManualPrompt, renderV2InlineInstruction, renderV2InlineSplit, renderV2Extras, splitCombinedAnswer, v2Method, wantsLookDetail } from "./prompt.js";
+import { qwenArtStyleText } from "../../../prompts/imageGenV2.js";
+import { sortOldLooks, refreshQwenDescriptions, refreshOutfitTags, storeOutfitTags, storeNewLooks, takeLookAttempts, releaseLookAttempts, warnLooklessInScene, warnLooksNotMade, sheetSourceFor, looksSettled, looksBeingRead } from "./looks.js";
 
 export const V2_DEFAULTS = {
     style: "tags", shot: "cinematic", extra: "", method: "placeholders",
     autoLooks: true,          // a character entering the scene gets a look read from the chat
     lookPriority: "v2",       // "v2" | "npc": which wins when the NPC Bank also has Image Tags
-    outfitTags: false,        // Tags style: turn World State outfits into detailed tags (once per outfit)
-    focus: "3"                // characters with a line of their own: "2" | "3" | "4" | "all"
+    focus: "3",               // characters with a line of their own: "2" | "3" | "4" | "all"
+    artStyle: "anime",        // Qwen Image: QWEN_ART_STYLES id, or "custom"
+    artStyleCustom: "",       // Qwen Image: your own art style, with "custom"
+    textInImages: false       // Qwen Image and Krea 2: speech bubbles, signs, phone screens when they fit
 };
 
 // ── The previous image prompt (Reference method) ─────────────────────────
@@ -42,8 +45,16 @@ function setLastImagePrompt(prompt) {
     saveMetadataDebounced();
 }
 
-export function v2Settings() {
+/** The settings as saved (no Qwen override), for the tab to write back. */
+export function v2StoredSettings() {
     return { ...V2_DEFAULTS, ...((localProfile && localProfile.imageGen && localProfile.imageGen.v2) || {}) };
+}
+
+export function v2Settings() {
+    const cfg = { ...V2_DEFAULTS, ...((localProfile && localProfile.imageGen && localProfile.imageGen.v2) || {}) };
+    // Qwen Image has no "Edit last prompt" (plan 026).
+    cfg.method = v2Method(cfg.style, cfg.method);
+    return cfg;
 }
 
 const sub = t => { try { return substituteParams(t); } catch (e) { return t; } };
@@ -83,7 +94,8 @@ export function currentImageCast() {
         userName: sub("{{user}}"),
         recentText: recent,
         npcFirst: v2Settings().lookPriority === "npc" && Boolean(localProfile && localProfile.npcBank && localProfile.npcBank.enabled),
-        outfitTags: v2Settings().outfitTags && v2Settings().style === "tags"
+        outfitTags: true,         // plan 027: every style, by part, once per outfit
+        qwen: v2Settings().style === "qwen"
     });
 }
 
@@ -93,10 +105,11 @@ function sceneLine() {
     return [s.time && `Time: ${s.time}`, s.location && `Loc: ${s.location}`, s.weather && `Wx: ${s.weather}`].filter(Boolean).join(" | ");
 }
 
-function rules(extraInstruction = "") {
+function rules(extraInstruction = "", { inline = false } = {}) {
     const cfg = v2Settings();
     const extra = [cfg.extra, extraInstruction].filter(s => String(s || "").trim()).join(" ");
-    return sub(renderV2Rules({ style: cfg.style, shot: cfg.shot, extra, method: cfg.method, focus: cfg.focus }));
+    return sub(renderV2Rules({ style: cfg.style, shot: cfg.shot, extra, method: cfg.method, focus: cfg.focus,
+        artStyle: qwenArtStyleText(cfg.artStyle, cfg.artStyleCustom), text: cfg.textInImages === true, inline }));
 }
 
 // ── The manual button ────────────────────────────────────────────────────
@@ -110,12 +123,13 @@ export async function v2GenerateImagePromptText({ extraInstruction = "" } = {}) 
     // missing) is asked for in this SAME call and saved from its answer.
     const chatAtStart = getContext()?.chatId;
     const castNow = currentImageCast();
-    const staleOutfits = cfg.outfitTags && cfg.style === "tags" ? castNow.filter(m => m.outfitStale && inImage(m, cfg.shot)) : [];
+    const staleOutfits = castNow.filter(m => m.outfitStale && inImage(m, cfg.shot));
     const missingLooks = cfg.autoLooks === false ? [] : takeLookAttempts(chatAtStart, castNow.filter(m => needsLook(m, cfg.shot)));
     warnLooklessInScene(chatAtStart, castNow, cfg.shot, missingLooks);
     const extras = renderV2Extras({
         outfits: staleOutfits.map(m => ({ name: m.name, outfit: m.outfitText })),
-        looks: missingLooks.map(m => m.name)
+        looks: missingLooks.map(m => m.name),
+        detail: wantsLookDetail(cfg.style)
     });
     // The image shows the moment the last message ends on; the ones before
     // it are context only, so the model does not draw what already ended.
@@ -181,7 +195,7 @@ export function v2InlineInstruction({ conditionalText = "", imageCount = 1 } = {
         conditionalText,
         imageCount,
         castList: renderCastList(cast, { shot: cfg.shot, method: cfg.method, lookPending: inlineLookPending(cast, cfg) }),
-        rules: rules(),
+        rules: rules("", { inline: true }),
         method: cfg.method,
         previous: getLastImagePrompt()
     }));
@@ -194,7 +208,7 @@ export function v2InlineSplit({ conditionalText = "" } = {}) {
     const out = renderV2InlineSplit({
         conditionalText,
         castList: renderCastList(cast, { shot: cfg.shot, method: cfg.method, lookPending: inlineLookPending(cast, cfg) }),
-        rules: rules(),
+        rules: rules("", { inline: true }),
         method: cfg.method,
         previous: getLastImagePrompt()
     });
@@ -241,7 +255,9 @@ export async function v2ResolveForComfy(prompt) {
     // a World State read or a look still running, then bring any changed
     // outfit tags up to date. Each is a no-op when nothing is pending.
     await waitForImageInputs();
+    await sortOldLooks();
     await refreshOutfitTags();
+    await refreshQwenDescriptions();
     const r = resolveImagePrompt(prompt, { cast: currentImageCast(), style: v2Settings().style });
     lastResolution = { input: String(prompt || ""), ...r };
     // Reference method edits this next time. Kept on both methods, so switching

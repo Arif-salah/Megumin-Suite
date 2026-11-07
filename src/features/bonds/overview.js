@@ -54,7 +54,7 @@ export async function openBondsOverview() {
     const $root = $(`
         <div class="meg-bonds-pop">
             <div class="meg-bonds-pop-head">
-                <h3><i class="fa-solid fa-heart" style="color:#f43f5e;"></i> Bonds <span class="meg-bonds-pop-hint">${people.length} character${people.length === 1 ? "" : "s"}</span></h3>
+                <h3><i class="fa-solid fa-heart" style="color:var(--c-chomu, #f43f5e);"></i> Bonds <span class="meg-bonds-pop-hint">${people.length} character${people.length === 1 ? "" : "s"}</span></h3>
                 ${people.length > 6 ? `<input type="search" class="ps-modern-input meg-bonds-search" placeholder="Search a name…"/>` : ""}
                 <button type="button" class="meg-bonds-all meg-bonds-edit" title="Edit values, add or forget characters"><i class="fa-solid fa-pen"></i> Edit</button>
             </div>

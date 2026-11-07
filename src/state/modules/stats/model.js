@@ -12,6 +12,9 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { statKey } from "./parse.js";
+import { whoIs, namedIn, nameWords } from "../../names.js";
+
+export { nameWords };
 
 export const emptyBonds = () => ({ people: {} });
 export const emptySheet = () => ({ fields: {}, seq: 0 });
@@ -47,17 +50,88 @@ function applyField(target, f) {
     return b === next.text ? null : { label: next.label, before: b, after: next.text };
 }
 
-/** Finds the record for a name: exact, then a unique first-name match ("Matt" ↔ "Matt Reyes"). */
-export function findPersonKey(people, name) {
+/** Finds the record for a name (state/names.js: exact, then the one character it fits). */
+export function findPersonKey(people, name, opts) {
     const k = statKey(name);
     if (people[k]) return k;
-    const first = k.split(" ")[0];
-    const hits = Object.keys(people).filter(p => p.split(" ")[0] === first);
-    return hits.length === 1 && first.length > 2 ? hits[0] : null;
+    return whoIs(people, name, opts);
+}
+
+/**
+ * Names in a Bonds block that World State knows under another spelling
+ * (plan 022): "Duncan" is Duncan Cairns, 'Matthew "Matt"' is Matthew. Each
+ * goes to the bonds already on file for that character, or starts theirs
+ * under World State's name. Saved with the reply as `facts.same`.
+ * @param {{ people: object }} state  the bonds before the reply
+ * @param {{ people?: Array<{ name: string }> }} parsed  the reply's Bonds block
+ * @param {object} cast  World State's cast
+ * @returns {Record<string, string>} name as written → name to use
+ */
+export function bondNamesFromCast(state, parsed, cast) {
+    const people = (state && state.people) || {};
+    const out = {};
+    for (const p of (parsed && parsed.people) || []) {
+        if (findPersonKey(people, p.name)) continue;
+        const ck = whoIs(cast || {}, p.name);
+        if (!ck) continue;
+        const c = cast[ck];
+        const k = [c.name, ...(c.aliases || [])].map(n => findPersonKey(people, n)).find(Boolean);
+        const name = k ? people[k].name : c.name;
+        if (name !== p.name) out[p.name] = name;
+    }
+    return out;
+}
+
+const bondName = (p, facts) => (facts && facts.same && facts.same[p.name]) || p.name;
+
+/**
+ * The characters on file that a reply wrote bonds for without having been
+ * handed theirs (someone coming back before the story named them again).
+ * Saved with the reply as `facts.unsent`, so a reload decides the same way.
+ * @param {{ people: object }} state  the bonds before the reply
+ * @param {{ people?: Array<{ name: string }> }} parsed  the reply's Bonds block
+ * @param {string[]} handed  record keys the story model was handed
+ * @returns {string[]} record keys
+ */
+export function unsentBondKeys(state, parsed, handed = [], facts) {
+    const people = (state && state.people) || {};
+    const out = [];
+    for (const p of (parsed && parsed.people) || []) {
+        const k = findPersonKey(people, bondName(p, facts));
+        if (k && !handed.includes(k) && !out.includes(k)) out.push(k);
+    }
+    return out;
+}
+
+/**
+ * The names in a Bonds block that keep their bonds handed over next turn: lines
+ * that changed something on file, and lines skipped because the story could
+ * not see that character. A line copied back unchanged keeps nobody in, so a
+ * model that repeats everything it was handed can't hold the list open.
+ * @param {{ people: object }} prev  the bonds before that reply
+ * @param {{ people?: object[] }} parsed  that reply's Bonds block
+ * @param {{ unsent?: string[] }} [facts]  saved with the reply
+ * @returns {string[]} names as written
+ */
+export function movedBondNames(prev, parsed, facts) {
+    const unsent = new Set((facts && facts.unsent) || []);
+    const people = (prev && prev.people) || {};
+    const out = [];
+    const same = { same: (facts && facts.same) || {} };
+    for (const p of (parsed && parsed.people) || []) {
+        const name = bondName(p, facts);
+        const k = findPersonKey(people, name);
+        if ((k && unsent.has(k)) || applyBonds(prev, { people: [p] }, { facts: same }).applied.length) out.push(name);
+    }
+    return out;
 }
 
 export function applyBonds(prev, parsed, ctx = {}) {
     const state = structuredClone(prev || emptyBonds());
+    // A character the story model could not see is skipped: it would have made
+    // up fresh numbers over the real ones. The line still names them, so their
+    // bonds are handed over next turn and the story adjusts from there.
+    const unsent = new Set((ctx.facts && ctx.facts.unsent) || []);
     const applied = [];
     if (!parsed) return { state, applied, notes: [] };
     // The editor's "Forget": the character's bonds go entirely.
@@ -67,12 +141,35 @@ export function applyBonds(prev, parsed, ctx = {}) {
         applied.push({ label: state.people[k].name, before: "on file", after: "forgotten" });
         delete state.people[k];
     }
+    // "Same person as" on the World State card: the newcomer's bonds join the
+    // known character's, the fresher value of each field kept.
+    for (const m of parsed.merge || []) {
+        const from = findPersonKey(state.people, m.who);
+        const to = findPersonKey(state.people, m.into);
+        if (!from || from === to) continue;
+        const src = state.people[from];
+        delete state.people[from];
+        if (!to) {
+            state.people[statKey(m.into)] = { ...src, name: m.into };
+            applied.push({ label: m.into, before: src.name, after: "same person" });
+            continue;
+        }
+        const dst = state.people[to];
+        const newer = (src.seq || 0) > (dst.seq || 0);
+        for (const [fk, fv] of Object.entries(src.fields || {})) if (!dst.fields[fk] || newer) dst.fields[fk] = fv;
+        dst.seq = Math.max(src.seq || 0, dst.seq || 0);
+        applied.push({ label: dst.name, before: src.name, after: "same person" });
+    }
     if (!Array.isArray(parsed.people)) return { state, applied, notes: [] };
     for (const p of parsed.people) {
-        const key = findPersonKey(state.people, p.name) || statKey(p.name);
-        const rec = state.people[key] || (state.people[key] = { name: p.name, fields: {} });
-        // A longer name ("Matt Reyes" after "Matt") is the better one to show.
-        if (p.name.length > rec.name.length && statKey(p.name).startsWith(statKey(rec.name))) rec.name = p.name;
+        const name = bondName(p, ctx.facts);
+        const known = findPersonKey(state.people, name);
+        if (known && unsent.has(known)) continue;
+        const key = known || statKey(name);
+        const rec = state.people[key] || (state.people[key] = { name, fields: {} });
+        // A longer name ("Matt Reyes" after "Matt") is the better one to show;
+        // a bracket added after it ("Dom (Bartender)") is not.
+        if (name.length > rec.name.length && statKey(name).startsWith(statKey(rec.name)) && !/[(\[]/.test(name.slice(rec.name.length))) rec.name = name;
         rec.seq = typeof ctx.seq === "number" ? ctx.seq : rec.seq || 0;
         for (const f of p.fields) {
             const ch = applyField(rec.fields, f);
@@ -115,12 +212,8 @@ export function pickBondsFor(state, { present = [], recentText = "", latestNames
     const people = (state && state.people) || {};
     const out = [];
     const add = k => { if (k && people[k] && !out.includes(k)) out.push(k); };
-    for (const n of present) add(findPersonKey(people, n));
+    for (const n of present) add(findPersonKey(people, n, { nickname: true }));
     for (const n of latestNames) add(findPersonKey(people, n));
-    const text = ` ${statKey(recentText).replace(/[^\p{L}\p{N} ]+/gu, " ")} `;
-    for (const [k, rec] of Object.entries(people)) {
-        const names = [k, statKey(rec.name).split(" ")[0]].filter(n => n.length > 2);
-        if (names.some(n => text.includes(` ${n} `))) add(k);
-    }
+    for (const k of namedIn(recentText, people)) add(k);
     return out;
 }

@@ -8,7 +8,8 @@
 // a reply off is visible immediately.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { worldCardInfo, worldSetEntryDisabled, worldSettings, worldSameCharacter } from "../../state/index.js";
+import { worldCardInfo, worldSetEntryDisabled, worldSettings, worldSameCharacter, worldIsLatestReply, worldPresentNames, worldRemoveFromScene } from "../../state/index.js";
+import { Popup, POPUP_TYPE } from "../../st.js";
 
 const esc = v => String(v == null ? "" : v)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -173,4 +174,86 @@ export function worldDecoratePane(paneEl, msgIndex, hooks = {}) {
             after = row;
         }
     }
+}
+
+// ── Removing someone from the scene, on the card itself (plan 020) ─────────
+//
+// Users kept asking how to take a character out of the scene: the Editor is a
+// button away, but nobody looks there. Each character on the LATEST reply's
+// card gets an ×. Older cards show the scene as it was then, so they get none.
+// The × asks: left the scene (kept, off-screen, comes back when mentioned) or
+// forget them (gone from World State). Both are your own edits: Undo in the
+// Editor's History.
+
+const norm = v => String(v || "").replace(/["“”]/g, "").replace(/\s+/g, " ").trim().toLowerCase();
+
+async function askRemove(name) {
+    const $body = $(`<div style="text-align:left;">
+        <h3 style="margin-top:0;">Take ${esc(name)} out of the scene?</h3>
+        <p><b>Left the scene:</b> ${esc(name)} goes to Off-screen and is kept. They come back when the story brings them in again.</p>
+        <p><b>Forget them:</b> ${esc(name)} is removed from World State completely.</p>
+        <p style="opacity:0.75;">Changed your mind? Delete the edit in the Editor's History.</p>
+    </div>`);
+    const res = await new Popup($body, POPUP_TYPE.CONFIRM, "", {
+        okButton: "Left the scene",
+        cancelButton: "Cancel",
+        customButtons: ["Forget them"]
+    }).show();
+    if (res === 2) return "forget";
+    return res ? "leave" : null;
+}
+
+/**
+ * Adds the × to each character in the scene on the latest reply's card.
+ * @param {HTMLElement} paneEl  the World State pane of one message's card
+ * @param {number} msgIndex
+ * @param {() => void} [onChanged]
+ */
+export function worldDecorateCast(paneEl, msgIndex, onChanged) {
+    if (!paneEl || typeof msgIndex !== "number") return;
+    paneEl.querySelectorAll(".meg-ws-remove").forEach(el => el.remove());
+    if (!worldIsLatestReply(msgIndex)) return;
+    const present = worldPresentNames();
+    if (!present.length) return;
+
+    paneEl.querySelectorAll(".meg-ws-person:not(.meg-ws-pc)").forEach(card => {
+        const head = card.querySelector(".meg-ws-person-head");
+        const shown = norm(card.querySelector(".meg-ws-nm")?.textContent);
+        const who = present.find(c => norm(c.display) === shown || norm(c.name) === shown);
+        if (!head || !who) return;
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "meg-ws-remove";
+        btn.title = `Take ${who.name} out of the scene`;
+        btn.setAttribute("aria-label", btn.title);
+        btn.innerHTML = `<i class="fa-solid fa-xmark"></i>`;
+        btn.addEventListener("click", async e => {
+            e.preventDefault();
+            e.stopPropagation(); // inside the card: act, do not fold
+            const how = await askRemove(who.name);
+            if (!how) return;
+            if (!worldRemoveFromScene(who.name, { forget: how === "forget" })) return;
+            toastr.success(how === "forget" ? `${who.name} is forgotten.` : `${who.name} left the scene.`, "World State", { timeOut: 3000 });
+            if (onChanged) onChanged();
+        });
+        head.appendChild(btn);
+    });
+}
+
+// ── "World State · 3" on the card's tab (plan 020) ──────────────────────────
+// The "Changed in this reply" strip is inside the tab, so nobody saw it. The
+// tab itself says how many things this reply changed. Shown whether or not
+// the strip is on; nothing when the reply changed nothing or is switched off.
+export function worldTabCount(bodyEl, msgIndex) {
+    const tab = bodyEl && bodyEl.querySelector('.meg-blocks-tab[data-block-id="world"]');
+    if (!tab || typeof msgIndex !== "number") return;
+    tab.querySelector(".meg-tab-count")?.remove();
+    const info = worldCardInfo(msgIndex);
+    const n = info && !info.disabled && !info.pending ? (info.applied || []).length : 0;
+    if (!n) return;
+    const badge = document.createElement("span");
+    badge.className = "meg-tab-count";
+    badge.textContent = `· ${n}`;
+    badge.title = `This reply changed ${n} thing${n === 1 ? "" : "s"} in the scene`;
+    tab.appendChild(badge);
 }

@@ -15,7 +15,8 @@
 // ────────────────────────────────────────────────────────────────────────────
 
 import { parseNotebook, storyProse } from "./parse.js";
-import { NOTEBOOK_TRUTH_FORM } from "./render.js";
+import { truthFormText, truthCountWords } from "./render.js";
+import { editable } from "../../../prompts/edits.js";
 
 export const NOTEBOOK_WORKER_SYSTEM =
     "You keep the author's notebook of an ongoing story: the truths it is hiding, the clues it plants, and who finds what out. " +
@@ -26,7 +27,11 @@ export const NOTEBOOK_WORKER_SYSTEM =
  * @returns {{ rules: string, template: string, tag: string }}
  */
 export function renderNotebookClerkTask() {
-    const rules = [
+    const rules = editable("notebookClerkRules", NOTEBOOK_CLERK_RULES);
+    return { rules, template: "<Notebook_Update>\n[change lines, or No changes]\n</Notebook_Update>", tag: "Notebook_Update" };
+}
+
+export const NOTEBOOK_CLERK_RULES = [
         "<Notebook_Update_Rules>",
         "<Author_Notebook> holds the truths the story is hiding, as they stood before the latest exchange. Read the latest exchange and write a <Notebook_Update> block with what it did to them. Most exchanges do nothing to them; then the block holds the single line No changes.",
         "",
@@ -37,8 +42,6 @@ export function renderNotebookClerkTask() {
         "A clue counts only when the exchange shows it on the page. Use the truths' own ids. A truth never changes once written: you don't write new truths or rewrite them.",
         "</Notebook_Update_Rules>"
     ].join("\n");
-    return { rules, template: "<Notebook_Update>\n[change lines, or No changes]\n</Notebook_Update>", tag: "Notebook_Update" };
-}
 
 /**
  * The separate read.
@@ -54,7 +57,7 @@ export function renderNotebookWorkerPrompt(a) {
         `# Task\n${task.rules}`,
         `# Answer with this block and nothing else\n${task.template}`
     ].filter(s => String(s || "").trim()).join("\n\n");
-    return { system: NOTEBOOK_WORKER_SYSTEM, user };
+    return { system: editable("notebookWorkerSystem", NOTEBOOK_WORKER_SYSTEM), user };
 }
 
 // ── The setup, when the reply wrote none (plan 018) ──
@@ -69,28 +72,35 @@ export const NOTEBOOK_SETUP_SYSTEM =
     "You never continue the story and never explain.";
 
 /** The setup task, for the separate call and the combined one. */
-export function renderNotebookSetupTask() {
-    const rules = [
+export function renderNotebookSetupTask({ cap } = {}) {
+    const count = truthCountWords(cap);
+    const rules = editable("notebookSetupClerkRules", notebookSetupClerkText(count, truthFormText()),
+        { truths: count, truth_form: truthFormText() });
+    return { rules, template: `<Notebook>\n[${count}, each in the form above]\n</Notebook>`, tag: "Notebook" };
+}
+
+/** Chomusuke's built-in setup rules; Dev Mode opens it with {{truths}} and {{truth_form}}. */
+export function notebookSetupClerkText(count, form) {
+    return [
         "<Notebook_Setup_Rules>",
-        "The story keeps a notebook of the truths it holds back about the world, its past, or the people in it. It is empty, so write it now: a <Notebook> block with two or three truths, built from the character sheet, the setting, and the story so far.",
+        `The story keeps a notebook of the truths it holds back about the world, its past, or the people in it. It is empty, so write it now: a <Notebook> block with ${count}, built from the character sheet, the setting, and the story so far.`,
         "",
         "A good truth comes from the setting and the sheet, and once it comes out it changes how earlier scenes read. A truth is about the world and the other characters. {{user}}'s own past and the reasons behind what they do belong to the reader. Nothing in the story so far has given it away.",
         "",
         "Write each one in this form:",
         "",
-        ...NOTEBOOK_TRUTH_FORM,
+        form,
         "</Notebook_Setup_Rules>"
     ].join("\n");
-    return { rules, template: "<Notebook>\n[two or three truths, each in the form above]\n</Notebook>", tag: "Notebook" };
 }
 
 /**
  * The separate setup call.
- * @param {{ sheet?: string, earlier?: string, exchange: string }} a  sheet: the character card
+ * @param {{ sheet?: string, earlier?: string, exchange: string, cap?: number }} a  sheet: the character card; cap: how many truths can be live
  * @returns {{ system: string, user: string }}
  */
 export function renderNotebookSetupWorkerPrompt(a) {
-    const task = renderNotebookSetupTask();
+    const task = renderNotebookSetupTask({ cap: a.cap });
     const user = [
         String(a.sheet || "").trim() ? `<Character_Sheet>\n${String(a.sheet).trim()}\n</Character_Sheet>` : "",
         String(a.earlier || "").trim() ? `<Earlier_Story>\n${String(a.earlier).trim()}\n</Earlier_Story>` : "",
@@ -98,7 +108,7 @@ export function renderNotebookSetupWorkerPrompt(a) {
         `# Task\n${task.rules}`,
         `# Answer with this block and nothing else\n${task.template}`
     ].filter(s => String(s || "").trim()).join("\n\n");
-    return { system: NOTEBOOK_SETUP_SYSTEM, user };
+    return { system: editable("notebookSetupSystem", NOTEBOOK_SETUP_SYSTEM), user };
 }
 
 /** Did the reply write truths of its own (a <Notebook>)? Then there is no setup to write. */

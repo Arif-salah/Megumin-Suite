@@ -239,6 +239,10 @@ function parseLine({ t, bullet }, ctx, out) {
     if (isPlaceholder(t)) return true;
     if (/^\((repeat|include|add|if)\b/i.test(t)) return true;
 
+    // "+Mira.Outfit: …" is a field line with the scene list's "+" (someone
+    // new) copied in (plan 022), not an arrival.
+    if (/^\+\s*[^:=]{1,48}\.[\p{L} ]{2,24}:/u.test(t)) t = t.replace(/^\+\s*/, "");
+
     // ── Arrival: "+ Darkness" / "+ Darkness: Outfit=armor; Mood=eager"
     let m = t.match(/^\+\s*(.+)$/);
     if (m) return parseArrival(m[1], ctx, out);
@@ -316,8 +320,18 @@ function parseLine({ t, bullet }, ctx, out) {
 
         // Phases
         if (PHASE_LABELS[L]) {
-            if (skipValue(value)) return true;
-            return push(out, { type: "phase", key: PHASE_LABELS[L], value });
+            // Several phases on one line ("Arc: Resolution | Scene: Breather",
+            // "Scene: Breather | Scene: Building"): each part is its own line,
+            // so the second Scene counts as written twice (the first wins).
+            // A phase is one word or two; it never holds a "|".
+            const [own, ...rest] = value.split(/\s*\|\s*/);
+            if (!skipValue(own)) push(out, { type: "phase", key: PHASE_LABELS[L], value: own.trim() });
+            for (const part of rest) {
+                const pm = part.match(/^([^:]+):\s*(.+)$/);
+                const key = pm && PHASE_LABELS[normLabel(pm[1])];
+                if (key && !skipValue(pm[2])) push(out, { type: "phase", key, value: pm[2].trim() });
+            }
+            return true;
         }
 
         // Off-screen: "Offscreen: Wiz = restocking" or a section header

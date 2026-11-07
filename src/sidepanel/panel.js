@@ -159,7 +159,7 @@ function buildPanelSkeleton() {
         el("div", { class: "meg-sp-header-actions" },
             el("button", {
                 class: "meg-sp-icon-btn",
-                title: "Open NPC Book",
+                title: "Open NPC Bank",
                 onclick: () => openNpcBook(),
             }, el("i", { class: "fa-solid fa-book-open" })),
             el("button", {
@@ -207,7 +207,7 @@ function clickNpcBankDot() {
 function openNpcBook(focusIdx) {
     const $overlay = window.jQuery ? window.jQuery("#prompt-slot-modal-overlay") : null;
     if (!$overlay || !$overlay.length) {
-        try { (window.toastr || console).info("Open Megumin Suite (wand icon) at least once first.", "NPC Book"); } catch (e) { /* */ }
+        try { (window.toastr || console).info("Open Megumin Suite (wand icon) at least once first.", "NPC Bank"); } catch (e) { /* */ }
         return;
     }
 
@@ -1463,7 +1463,7 @@ function injectStylesheet() {
     try {
         link.href = new URL("./styles.css", import.meta.url).toString();
     } catch (e) {
-        link.href = "scripts/extensions/third-party/Megumin-Suite/src/sidepanel/styles.css";
+        link.href = "scripts/extensions/third-party/Megumin-Suite-Beta/src/sidepanel/styles.css";
     }
     document.head.appendChild(link);
 }
@@ -1504,7 +1504,7 @@ function updateHeaderImage() {
     const ctx = getContext();
     let imgUrl = "";
     if (ctx.groupId !== undefined && ctx.groupId !== null) {
-        imgUrl = `/scripts/extensions/third-party/Megumin-Suite/img/group.png`;
+        imgUrl = `/scripts/extensions/third-party/Megumin-Suite-Beta/img/group.png`;
     } else if (ctx.characterId !== undefined && ctx.characterId !== null && ctx.characters && ctx.characters[ctx.characterId]) {
         imgUrl = `/characters/${ctx.characters[ctx.characterId].avatar}`;
     }

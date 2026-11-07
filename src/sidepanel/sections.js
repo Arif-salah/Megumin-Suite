@@ -315,11 +315,11 @@ function renderNpcBank(ctx) {
 
     const openBookBtn = el("button", {
         class: "meg-sp-book-btn",
-        title: "Open the full NPC Book (browse, edit, upload, generate portraits)",
+        title: "Open the full NPC Bank (browse, edit, upload, generate portraits)",
         onclick: () => ctx.openNpcBook(),
     },
         el("i", { class: "fa-solid fa-book-open" }),
-        " Open NPC Book",
+        " Open NPC Bank",
         npcs.length ? el("span", { class: "meg-sp-book-count" }, String(npcs.length)) : null,
     );
     wrap.appendChild(openBookBtn);
@@ -346,7 +346,7 @@ function renderNpcBank(ctx) {
         grid.appendChild(el("div", {
             class: "meg-sp-bank-mini",
             style: { "--accent": accentVar },
-            title: "Click to open in NPC Book",
+            title: "Click to open in NPC Bank",
             onclick: () => ctx.openNpcBook(idx),
         },
             portrait,

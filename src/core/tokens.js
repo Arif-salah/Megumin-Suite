@@ -77,10 +77,10 @@ export function updateLiveTokenCount() {
     const breakdownHTML = `
         <div style="text-align:left; min-width: 160px; font-family: 'Inter', sans-serif;">
             <div style="border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 6px; margin-bottom: 6px; color: var(--gold); font-size: 0.8rem;"><b>Payload Breakdown</b></div>
-            <div style="display:flex; justify-content:space-between; font-size: 0.75rem; margin-bottom: 4px;"><span>Engine Core:</span> <span style="color:#10b981; font-weight:bold;">~${estEngine}</span></div>
-            <div style="display:flex; justify-content:space-between; font-size: 0.75rem; margin-bottom: 4px;"><span>CoT / Logic:</span> <span style="color:#3b82f6; font-weight:bold;">~${estCot}</span></div>
-            <div style="display:flex; justify-content:space-between; font-size: 0.75rem; margin-bottom: 4px;"><span>Style &amp; Config:</span> <span style="color:#a855f7; font-weight:bold;">~${estStyle}</span></div>
-            <div style="display:flex; justify-content:space-between; font-size: 0.75rem;"><span>Add-ons/Blocks:</span> <span style="color:#ef4444; font-weight:bold;">~${estAddons}</span></div>
+            <div style="display:flex; justify-content:space-between; font-size: 0.75rem; margin-bottom: 4px;"><span>Engine Core:</span> <span style="color:var(--c-live, #10b981); font-weight:bold;">~${estEngine}</span></div>
+            <div style="display:flex; justify-content:space-between; font-size: 0.75rem; margin-bottom: 4px;"><span>CoT / Logic:</span> <span style="color:var(--c-info, #3b82f6); font-weight:bold;">~${estCot}</span></div>
+            <div style="display:flex; justify-content:space-between; font-size: 0.75rem; margin-bottom: 4px;"><span>Style &amp; Config:</span> <span style="color:var(--c-ai, #a855f7); font-weight:bold;">~${estStyle}</span></div>
+            <div style="display:flex; justify-content:space-between; font-size: 0.75rem;"><span>Add-ons/Blocks:</span> <span style="color:var(--c-danger, #ef4444); font-weight:bold;">~${estAddons}</span></div>
         </div>
     `;
 

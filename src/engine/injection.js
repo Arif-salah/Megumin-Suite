@@ -28,6 +28,7 @@ import { buildBaseDict } from "./buildBaseDict.js";
 import { hideBlocksInMessages } from "./hideBlocks.js";
 import { addThinkingNudge } from "./thinkingNudge.js";
 import { meguminAllBlockTags } from "../features/blocks/registry.js";
+import { customHiding } from "../state/index.js";
 import { meguminAllSlotTriggers } from "../../data/slots.js";
 import { suiteEnabled } from "../core/power.js";
 import { backgroundJobNow, reviewBackgroundPrompt } from "./bgPrompts.js";
@@ -403,9 +404,14 @@ async function buildPromptInjection(data, type) {
     // in <Current_Info>, instead of every old block in the chat history. Done
     // before the placeholders are filled, so the [[blocks]] template the preset
     // carries is never touched — only the replies already in the chat.
+    // Plan 023: each custom block decides for itself, with hiding on or off.
+    let custom = { hide: [], keep: [] };
+    try { custom = customHiding(); } catch (e) { console.warn(`[${extensionName}] Custom blocks: could not read their settings.`, e); }
     if (localProfile.hideBlocksFromAI !== false) {
-        const hidden = hideBlocksInMessages(messages, meguminAllBlockTags());
+        const hidden = hideBlocksInMessages(messages, meguminAllBlockTags(), { keep: custom.keep });
         if (hidden) console.debug(`[${extensionName}] Hid the blocks in ${hidden} earlier repl${hidden === 1 ? "y" : "ies"} from the model.`);
+    } else if (custom.hide.length) {
+        hideBlocksInMessages(messages, custom.hide, { whole: false });
     }
 
     let replacementsMade = 0;

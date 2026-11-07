@@ -20,7 +20,9 @@ import {
     event_types,
     eventSource,
     substituteParams,
-    saveChat,
+    // SillyTavern's saveChat() refuses a group chat (it throws). This one
+    // saves either kind, the same as getContext().saveChat.
+    saveChatConditional as saveChat,
     reloadCurrentChat,
     addOneMessage,
     getRequestHeaders,

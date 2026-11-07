@@ -44,7 +44,7 @@ export function renderPromptEditor(config) {
                 <div style="display:flex; align-items:center; gap:12px;">
                     <span class="pe-title"><i class="fa-solid fa-pen-to-square"></i> ${title}</span>
                     <div class="ps-toggle-card ${enabled ? 'active' : ''} pe-enable-toggle" style="padding: 2px; min-width: 36px; background: transparent; border-color: ${enabled ? '#10b981' : 'var(--border-color)'}; cursor: pointer; border-radius: 8px;" title="Enable custom prompts override">
-                        <div class="ps-switch" style="transform: scale(0.65); ${enabled ? 'background: #10b981;' : ''}"></div>
+                        <div class="ps-switch" style="transform: scale(0.65); ${enabled ? 'background: var(--c-live, #10b981);' : ''}"></div>
                     </div>
                 </div>
                 <i class="fa-solid fa-chevron-down pe-chevron" style="cursor:pointer; padding:5px;"></i>

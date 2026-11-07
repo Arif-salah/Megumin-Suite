@@ -12,7 +12,13 @@ import { localProfile } from "../../../core/state.js";
 import { saveProfileToMemory, saveProfileDebounced } from "../../../core/profile.js";
 import { RESOLUTIONS } from "../../../../data/image_data.js";
 import { igFetchComfyLists, igTestConnection, igCheckConnection, igPopulateWorkflows, igNewWorkflowClick, igDeleteWorkflowClick, igOpenWorkflowEditorClick } from "../comfy.js";
-import { card, field, switchRow, esc } from "../../../ui/controls.js";
+import { card, field, switchRow, tiles, esc } from "../../../ui/controls.js";
+import { imageBackend, setImageBackend, sillyTavernImagesReady } from "../backend.js";
+
+const BACKENDS = [
+    { id: "comfy", label: "ComfyUI", desc: "Megumin's own workflows, models and LoRAs, set below." },
+    { id: "st", label: "SillyTavern's Image Generation", desc: "The source you set up in SillyTavern (ComfyUI, Forge, NovelAI, Pollinations…)." }
+];
 
 const GUIDE_URL = "https://www.reddit.com/r/SillyTavernAI/comments/1u87agq/tutorial_how_to_setup_inline_image_generation_in/";
 
@@ -32,8 +38,30 @@ const WORKFLOW_KEYS = [
  * @param redraw   draws this page again (a workflow switch restores values)
  * @param onTested called after Test, so the tab can update its status chip
  */
-export function renderGenerator(c, { redraw, onTested }) {
+export function renderGenerator(c, { redraw, onTested, onBackend }) {
     const s = localProfile.imageGen;
+
+    // ── Where images are made (plan 028): one choice for every character ──
+    const viaST = imageBackend() === "st";
+    const where = card("Where images are made", "One choice for every character.");
+    where.append(tiles(BACKENDS, imageBackend(), id => {
+        if (id === imageBackend()) return;
+        setImageBackend(id);
+        redraw();
+        if (onBackend) onBackend();
+    }));
+    if (viaST) {
+        where.append(sillyTavernImagesReady()
+            ? `<div class="igx-note"><i class="fa-solid fa-circle-info"></i> SillyTavern's Image Generation uses its own source, model, size, seed, prefix and negative prompt: set them in SillyTavern's Extensions panel, under Image Generation. Megumin writes the prompt (with each character's look in Version 2) and places the image.</div>`
+            : `<div class="igx-note"><i class="fa-solid fa-triangle-exclamation"></i> SillyTavern's Image Generation extension is off. Turn it on in SillyTavern's Extensions, then set it up there.</div>`);
+    }
+    c.append(where);
+
+    // The ComfyUI settings stay on the page (comfy.js fills them in by id), hidden
+    // while SillyTavern makes the images.
+    const outer = c;
+    c = $(`<div class="igx-stack"${viaST ? ` style="display:none;"` : ""}></div>`);
+    outer.append(c);
     // Until ComfyUI sends its lists, each box shows the saved choice, so nothing
     // looks lost while it is offline.
     const saved = (value, empty) => `<option value="${esc(value || "")}" selected>${value ? esc(value) : empty}</option>`;
@@ -193,5 +221,5 @@ export function renderGenerator(c, { redraw, onTested }) {
     // The workflow list comes from SillyTavern. The model, sampler and LoRA lists
     // come from ComfyUI, so they are asked for only once it has answered.
     igPopulateWorkflows();
-    igCheckConnection().then(ok => { if (ok && $.contains(document, c[0])) igFetchComfyLists(); });
+    if (!viaST) igCheckConnection().then(ok => { if (ok && $.contains(document, c[0])) igFetchComfyLists(); });
 }

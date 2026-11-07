@@ -6,13 +6,13 @@
 
 // Chomusuke sends its jobs straight to its profile (plan 019): one profile,
 // for Chomusuke, and the story's connection never changes.
-const MODEL_ADVICE = "Chomusuke works best with <b>GLM 5.3 Flash</b>. It has no jailbreak, so pick an uncensored or less censored model, like GLM 5.3 Flash <i class='fa-solid fa-star' style='color: #fbbf24;' title='Recommended'></i> (recommended) or <b>DeepSeek 4.1 Flash</b>: a censored one like Gemini can refuse an NSFW story.";
+const MODEL_ADVICE = "Chomusuke works best with <b>GLM 5.3 Flash</b>. It has no jailbreak, so pick an uncensored or less censored model, like GLM 5.3 Flash <i class='fa-solid fa-star' style='color: var(--c-warn, #fbbf24);' title='Recommended'></i> (recommended) or <b>DeepSeek 4.1 Flash</b>: a censored one like Gemini can refuse an NSFW story.";
 
 export const CHOMUSUKE_SETUP_STEPS = [
     "Open SillyTavern's <b>API Connections</b> panel (the plug icon in the top bar).",
     "Want Chomusuke on the same model as the story? You don't need a profile: pick <b>Use my current connection</b> in step 4.",
     `For another model: connect the model Chomusuke should use (Chat Completion: API, key, model, Connect). Then, at the top of the panel under <b>Connection Profile</b>, click <b>Create a new connection profile</b> (the page with a +), name it <b>Chomusuke</b> and save. Connect your story model again afterwards. ${MODEL_ADVICE}`,
-    "In the <b>Chomusuke</b> tab, turn Chomusuke on, pick the connection under <b>Worker connection</b> and press <b>Test</b>.",
+    "In the <b>Chomusuke</b> tab, turn Chomusuke on, pick its connection in step 1 (<b>Pick a connection</b>) and press <b>Test</b> in step 2.",
     "Turn on the jobs you want it to do, for example <b>Blocks</b> with World State."
 ];
 
@@ -29,7 +29,7 @@ export const CHOMUSUKE_SWITCH_STEPS = [
     "Connect your story model as usual. Then, at the top of the panel under <b>Connection Profile</b>, click <b>Create a new connection profile</b> (the page with a +), name it <b>Story</b> and save. Keep this profile picked while you play.",
     "Want Chomusuke on the same model as the story? You're done here: pick <b>Use my current connection</b> in step 5.",
     `For another model: in the same panel, connect the model Chomusuke should use (API, key, model, Connect), create a new connection profile again and name it <b>Chomusuke</b>. Then pick your <b>Story</b> profile again. ${MODEL_ADVICE}`,
-    "In the <b>Chomusuke</b> tab, turn Chomusuke on, pick the connection under <b>Worker connection</b> and press <b>Test</b>.",
+    "In the <b>Chomusuke</b> tab, turn Chomusuke on, pick its connection in step 1 (<b>Pick a connection</b>) and press <b>Test</b> in step 2.",
     "Turn on the jobs you want it to do, for example <b>Blocks</b> with World State."
 ];
 

@@ -12,6 +12,7 @@
 
 import { extension_settings, saveSettingsDebounced } from "../st.js";
 import { extensionName } from "./constants.js";
+import { syncMapByTabId } from "./syncKeys.js";
 
 export function cleanLegacySettings() {
     if (!extension_settings[extensionName] || !extension_settings[extensionName].profiles) return;
@@ -33,9 +34,10 @@ export function cleanLegacySettings() {
     if (didClean) saveSettingsDebounced();
 }
 
-// Tab titles are the key of the global-sync map, so renaming a tab orphans whatever the
-// reader had set on it and their choice silently reverts to off. Every rename belongs in
-// this table.
+// Tab titles were the key of the global-sync map until plan 020, so renaming a tab
+// orphaned whatever the reader had set on it. This table brings an old map up to the
+// last titles; syncMapByTabId (core/syncKeys.js) then moves it to tab ids, which don't
+// change with a rename. Nothing new goes in this table.
 //
 // A rename carries the flag across; a tab SPLIT does not hand it to both halves. When
 // Story Config split, the <config> half moved onto PRESETS & COT and deliberately did
@@ -55,6 +57,8 @@ const RENAMED_TABS = [
     ["NPCs Bank", "NPC Bank"],
     ["Memory Core", "Memory"],
     ["Global Settings", "Settings"],
+    // Plan 020: a page of Writing Style now, with its own Global switch still.
+    ["Language & Add-ons", "Language & rules"],
 ];
 
 export function migrateRenamedTabs() {
@@ -68,6 +72,11 @@ export function migrateRenamedTabs() {
         delete map[from];
         moved = true;
     });
+    const byId = syncMapByTabId(map);
+    if (byId.changed) {
+        store.globalSyncTabs = byId.map;
+        moved = true;
+    }
     if (moved) saveSettingsDebounced();
 }
 

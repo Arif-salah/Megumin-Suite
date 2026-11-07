@@ -230,21 +230,24 @@ function renderChoicesInto(pane, parsed, doc, opts) {
             btn.disabled = true;
             btn.title = "The model left this option unfilled";
         } else {
-            btn.title = onChoice ? `Click to put in the input · Shift-click to send` : full;
+            btn.title = onChoice ? `Click to put it in the input · the arrow sends it` : full;
         }
+        // The arrow sends (plan 020): Shift-click was the only way, and nobody
+        // found it. Shift-click still works.
         btn.innerHTML = `
             <span class="meg-choice-num">${i + 1}</span>
             <span class="meg-choice-body">
                 <span class="meg-choice-label">${esc(c.label)}</span>
                 ${c.detail ? `<span class="meg-choice-detail">${esc(c.detail)}</span>` : ""}
             </span>
-            <span class="meg-choice-go"><i class="fa-solid fa-arrow-right"></i></span>
+            <span class="meg-choice-go${onChoice && !c.placeholder ? " meg-choice-send" : ""}"${onChoice && !c.placeholder ? ` title="Send this choice now"` : ""}><i class="fa-solid ${onChoice && !c.placeholder ? "fa-paper-plane" : "fa-arrow-right"}"></i></span>
         `;
         if (onChoice && !c.placeholder) {
             btn.addEventListener("click", e => {
                 e.stopPropagation();
                 e.preventDefault();
-                onChoice(full, { send: e.shiftKey });
+                const viaArrow = Boolean(e.target && e.target.closest && e.target.closest(".meg-choice-send"));
+                onChoice(full, { send: e.shiftKey || viaArrow });
             });
         }
         list.appendChild(btn);
@@ -255,7 +258,7 @@ function renderChoicesInto(pane, parsed, doc, opts) {
     if (onChoice) {
         const hint = doc.createElement("div");
         hint.className = "meg-choices-hint";
-        hint.textContent = "Click to fill the input · Shift-click to send straight away";
+        hint.textContent = "Click a choice to put it in the input · the arrow sends it straight away";
         pane.appendChild(hint);
     }
 }
@@ -265,7 +268,8 @@ function renderChoicesInto(pane, parsed, doc, opts) {
 // caller falls back to renderBody — so a treatment that throws costs the reader
 // nothing but the nicety.
 function renderTreated(b, opts) {
-    const t = BLOCK_TREATMENTS[b.def.id];
+    // `treatment`: a block drawn like another (a custom field block like the Sheet, plan 023).
+    const t = BLOCK_TREATMENTS[b.def.treatment || b.def.id];
     if (!t) return "";
     // A block cut off mid-write is exactly the case a structural parser gets
     // wrong most confidently, so truncated bodies always take the prose path.
@@ -413,7 +417,7 @@ export function buildBlocksCard(blocks, opts = {}) {
             // drew something. Putting it on unconditionally would style a prose
             // fallback with the scene board's layout rules.
             if (treated) {
-                const t = BLOCK_TREATMENTS[b.def.id];
+                const t = BLOCK_TREATMENTS[b.def.treatment || b.def.id];
                 if (t && t.cls) pane.classList.add(t.cls);
                 pane.innerHTML = treated;
             } else {

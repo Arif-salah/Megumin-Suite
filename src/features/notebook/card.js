@@ -8,7 +8,7 @@
 // an image landing) keeps a pane the reader already opened open.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { Popup, POPUP_TYPE } from "../../st.js";
+import { Popup, POPUP_TYPE, getContext, saveMetadataDebounced } from "../../st.js";
 import { notebookCardInfo, notebookSetEntryDisabled, notebookTurnLabel } from "../../state/index.js";
 import { describeNotebookChange } from "../../state/modules/notebook/render.js";
 
@@ -29,6 +29,21 @@ export function notebookCardStamp(msgIndex) {
 
 // Panes the reader chose to see, by journal entry (or message) so a redraw keeps them open.
 const revealed = new Set();
+
+// "Don't ask again in this chat": kept in the chat's own file.
+function notebookMeta() {
+    const ctx = getContext();
+    if (!ctx || !ctx.chatId || !ctx.chatMetadata) return null;
+    if (!ctx.chatMetadata.megumin_notebook || typeof ctx.chatMetadata.megumin_notebook !== "object") ctx.chatMetadata.megumin_notebook = {};
+    return ctx.chatMetadata.megumin_notebook;
+}
+const spoilersOk = () => Boolean(notebookMeta()?.spoilerOk);
+function allowSpoilers() {
+    const m = notebookMeta();
+    if (!m) return;
+    m.spoilerOk = true;
+    saveMetadataDebounced();
+}
 
 const esc = v => String(v == null ? "" : v)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -176,11 +191,16 @@ export function notebookDecoratePane(pane, msgIndex, hooks = {}) {
 
     reveal.addEventListener("click", async e => {
         e.stopPropagation();
-        const popup = new Popup(
-            "<h3>Show the notebook?</h3><p>This shows what the story is hiding. Reading it spoils the truths it is building toward.</p>",
-            POPUP_TYPE.CONFIRM, "", { okButton: "Show it", cancelButton: "Keep it hidden" }
-        );
-        if (!(await popup.show())) return;
+        // "Don't ask again in this chat" (plan 020): asked on every reply, the
+        // question became a click people made without reading.
+        if (!spoilersOk()) {
+            const answer = await new Popup(
+                "<h3>Show the notebook?</h3><p>This shows what the story is hiding. Reading it spoils the truths it is building toward.</p>",
+                POPUP_TYPE.CONFIRM, "", { okButton: "Show it", cancelButton: "Keep it hidden", customButtons: ["Show it, don't ask again in this chat"] }
+            ).show();
+            if (!answer) return;
+            if (answer === 2) allowSpoilers();
+        }
         revealed.add(key);
         wrap.classList.remove("is-hidden");
         hide.style.display = "";

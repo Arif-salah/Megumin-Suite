@@ -41,7 +41,7 @@ export const blocks = [
 </World_State>` },
     {
       id: "cyoa",
-      label: "CYOA Block",
+      label: "Choices Block",
       trigger: "[[cyoa]]",
       content: `<CYOA>
 1. [Short suggestion]

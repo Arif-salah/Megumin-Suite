@@ -2,7 +2,7 @@
 // Settings — extension preferences, community links and about.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { extension_settings, saveSettingsDebounced } from "../../st.js";
+import { extension_settings, saveSettingsDebounced, Popup, POPUP_TYPE } from "../../st.js";
 import { extensionName } from "../../core/constants.js";
 import { localProfile } from "../../core/state.js";
 import { initProfile, saveProfileToMemory } from "../../core/profile.js";
@@ -11,6 +11,11 @@ import { cancelDebounce } from "../../st.js";
 import { suiteEnabled, setSuiteEnabled } from "../../core/power.js";
 import { BG_JOBS, bgJobWanted } from "../../engine/bgPromptsCore.js";
 import { openBackgroundLog } from "../../engine/bgPrompts.js";
+import { meguminGlobalSyncMap, scopeNoun } from "../../core/sync.js";
+import { TABS_ALREADY_GLOBAL, sharedTabIds } from "../../core/syncKeys.js";
+import { TAB_LIST, tabPath } from "../tabList.js";
+import { segmented } from "../controls.js";
+import { fireRefreshHook, REFRESH } from "../../core/refreshHooks.js";
 
 // The version on the about card. One place, so it cannot fall out of step with
 // itself the way "v9" did once V10 shipped.
@@ -61,7 +66,7 @@ export function renderGlobalSettings(c) {
                     <p>Preferences that apply to every character and every chat.</p>
                 </div>
             </div>
-            <div class="mtab-header-badge" style="background: rgba(168,85,247,0.12); color: #a855f7; border: 1px solid rgba(168,85,247,0.25);">
+            <div class="mtab-header-badge" style="background: rgba(168,85,247,0.12); color: var(--c-ai, #a855f7); border: 1px solid rgba(168,85,247,0.25);">
                 <i class="fa-solid fa-earth-americas" style="font-size:0.6rem;"></i> Saved globally
             </div>
         </div>
@@ -73,12 +78,12 @@ export function renderGlobalSettings(c) {
     $content.append(`<div class="wstyle-section-head blue"><i class="fa-solid fa-sliders"></i> Behaviour</div>`);
     const suiteOn = suiteEnabled();
     $content.append(`
-        <div class="mtab-toggle-row ${suiteOn ? 'active' : ''}" id="gs_toggle_suite" style="cursor: pointer; ${suiteOn ? 'border-color: #10b981;' : ''}">
+        <div class="mtab-toggle-row ${suiteOn ? 'active' : ''}" id="gs_toggle_suite" style="cursor: pointer; ${suiteOn ? 'border-color: var(--c-live, #10b981);' : ''}">
             <div class="toggle-info">
-                <div class="toggle-label"><i class="fa-solid fa-power-off" style="color: #10b981;"></i> Megumin Suite On</div>
+                <div class="toggle-label"><i class="fa-solid fa-power-off" style="color: var(--c-live, #10b981);"></i> Megumin Suite On</div>
                 <div class="toggle-desc">The master switch, also on the top bar. <b>Off:</b> prompts go out exactly as SillyTavern builds them and nothing runs in the background after a reply. Cards and images already in the chat still show, and the buttons in this window still work.</div>
             </div>
-            <div class="ps-switch" style="${suiteOn ? 'background: #10b981;' : ''}"></div>
+            <div class="ps-switch" style="${suiteOn ? 'background: var(--c-live, #10b981);' : ''}"></div>
         </div>
     `);
     $content.append(`
@@ -117,50 +122,61 @@ export function renderGlobalSettings(c) {
     $content.append(`
         <div class="mtab-toggle-row ${gs.enableUtilityPrefill ? 'active' : ''}" id="gs_toggle_utility_prefill" style="cursor: pointer;">
             <div class="toggle-info">
-                <div class="toggle-label"><i class="fa-solid fa-wand-sparkles" style="color: #10b981;"></i> Utility Prefills</div>
+                <div class="toggle-label"><i class="fa-solid fa-wand-sparkles" style="color: var(--c-live, #10b981);"></i> Utility Prefills</div>
                 <div class="toggle-desc">Puts an opening &lt;think&gt; into the AI's mouth for background jobs — Image Gen, the Ban List, the Story Director, NPC scans. <b>Off by default:</b> Claude and several other APIs reject a prefill outright. Turn it on only if yours accepts one.</div>
             </div>
-            <div class="ps-switch" style="${gs.enableUtilityPrefill ? 'background: #10b981;' : ''}"></div>
+            <div class="ps-switch" style="${gs.enableUtilityPrefill ? 'background: var(--c-live, #10b981);' : ''}"></div>
         </div>
     `);
 
     $content.append(`
-        <div class="mtab-toggle-row ${gs.chomusukeSwitchConnection ? 'active' : ''}" id="gs_toggle_chomusuke_switch" style="cursor: pointer; ${gs.chomusukeSwitchConnection ? 'border-color: #38bdf8;' : ''}">
+        <div class="mtab-toggle-row ${gs.chomusukeSwitchConnection ? 'active' : ''}" id="gs_toggle_chomusuke_switch" style="cursor: pointer; ${gs.chomusukeSwitchConnection ? 'border-color: var(--c-sky, #38bdf8);' : ''}">
             <div class="toggle-info">
-                <div class="toggle-label"><i class="fa-solid fa-right-left" style="color: #38bdf8;"></i> Switch my connection for each Chomusuke job</div>
+                <div class="toggle-label"><i class="fa-solid fa-right-left" style="color: var(--c-sky, #38bdf8);"></i> Switch my connection for each Chomusuke job</div>
                 <div class="toggle-desc">Chomusuke sends its jobs straight to its own connection, and your story connection never changes. Turn this on only if Chomusuke's jobs fail that way: SillyTavern then switches to Chomusuke's connection for each job and back, the way older versions did.</div>
             </div>
-            <div class="ps-switch" style="${gs.chomusukeSwitchConnection ? 'background: #38bdf8;' : ''}"></div>
+            <div class="ps-switch" style="${gs.chomusukeSwitchConnection ? 'background: var(--c-sky, #38bdf8);' : ''}"></div>
         </div>
     `);
 
     if (gs.loreInTasks === undefined) gs.loreInTasks = true;
     $content.append(`
-        <div class="mtab-toggle-row ${gs.loreInTasks ? 'active' : ''}" id="gs_toggle_lore_tasks" style="cursor: pointer; ${gs.loreInTasks ? 'border-color: #a855f7;' : ''}">
+        <div class="mtab-toggle-row ${gs.loreInTasks ? 'active' : ''}" id="gs_toggle_lore_tasks" style="cursor: pointer; ${gs.loreInTasks ? 'border-color: var(--c-ai, #a855f7);' : ''}">
             <div class="toggle-info">
-                <div class="toggle-label"><i class="fa-solid fa-book-atlas" style="color: #a855f7;"></i> Lorebooks in Background Jobs</div>
+                <div class="toggle-label"><i class="fa-solid fa-book-atlas" style="color: var(--c-ai, #a855f7);"></i> Lorebooks in Background Jobs</div>
                 <div class="toggle-desc">Background jobs build their own prompt, so your lorebook entries don't reach them on their own. <b>On:</b> image looks, NPC portraits and NPC refreshes get the entries that name that character; the Story Director and NPC scans get the entries your story has active right now. Your story replies use the lorebook as usual either way.</div>
             </div>
-            <div class="ps-switch" style="${gs.loreInTasks ? 'background: #a855f7;' : ''}"></div>
+            <div class="ps-switch" style="${gs.loreInTasks ? 'background: var(--c-ai, #a855f7);' : ''}"></div>
         </div>
     `);
 
     // ── DATA ────────────────────────────────────────────────────────────────
     $content.append(`<div class="wstyle-section-head gold" style="margin-top:8px;"><i class="fa-solid fa-floppy-disk"></i> Data</div>`);
-    $content.append(`
+    // Plan 020: what "this character" means everywhere, and which tabs are
+    // shared right now (set in each tab's top bar).
+    const noun = scopeNoun();
+    const shared = sharedTabIds(meguminGlobalSyncMap(), TAB_LIST.map(t => t.id)).map(tabPath);
+    const always = TABS_ALREADY_GLOBAL.map(tabPath);
+    const $data = $(`
         <div class="mtab-panel" style="margin: 0; padding: 12px 16px;">
             <div class="mtab-setting-row" style="padding: 0; border: none;">
                 <div class="set-info">
-                    <div class="set-label"><i class="fa-solid fa-floppy-disk" style="color: var(--gold);"></i> Profile Save Mode</div>
-                    <div class="set-desc"><b>Per Character</b> shares your settings across every chat with that character. <b>Per Chat</b> keeps each chat and each branch on its own settings.</div>
+                    <div class="set-label"><i class="fa-solid fa-floppy-disk" style="color: var(--gold);"></i> Remember settings per</div>
+                    <div class="set-desc"><b>Character:</b> every chat with a character uses the same settings. <b>Chat:</b> each chat (and each branch) keeps its own; a new chat starts from its character's settings.</div>
                 </div>
-                <select id="gs_save_mode" class="ps-modern-input" style="width: 180px; cursor: pointer;">
-                    <option value="character" ${gs.saveMode === 'character' ? 'selected' : ''}>Per Character (Default)</option>
-                    <option value="chat" ${gs.saveMode === 'chat' ? 'selected' : ''}>Per Chat</option>
-                </select>
+                <div id="gs_save_mode"></div>
+            </div>
+            <div class="gs-shared">
+                <div class="gs-shared-row"><b>Shared by every ${noun} right now:</b> ${shared.length ? shared.join(", ") : "none. Each tab's top bar says who its settings are for."}</div>
+                <div class="gs-shared-row"><b>Always shared:</b> ${always.join(", ")}.</div>
             </div>
         </div>
     `);
+    $data.find("#gs_save_mode").append(segmented([
+        { id: "character", label: "Character" },
+        { id: "chat", label: "Chat" }
+    ], gs.saveMode === "chat" ? "chat" : "character", id => changeSaveMode(id, c)));
+    $content.append($data);
 
     // ── SEND KAZUMA A CARD ──────────────────────────────────────────────────
     // Skipped entirely while the URL is blank. A button that goes nowhere is
@@ -197,7 +213,7 @@ export function renderGlobalSettings(c) {
                     <span><b>GitHub</b><small>Source, issues and releases</small></span>
                 </a>
                 <div class="gs-link gs-link-static">
-                    <i class="fa-brands fa-paypal" style="color:#3b82f6;"></i>
+                    <i class="fa-brands fa-paypal" style="color:var(--c-info, #3b82f6);"></i>
                     <span><b>PayPal</b><small>arifsalah10@gmail.com</small></span>
                 </div>
                 <div class="gs-link gs-link-static">
@@ -235,18 +251,30 @@ export function renderGlobalSettings(c) {
     wireToggle("#gs_toggle_lore_tasks", "loreInTasks", "#a855f7");
     wireToggle("#gs_toggle_chomusuke_switch", "chomusukeSwitchConnection", "#38bdf8");
 
-    $content.find("#gs_save_mode").on("change", function () {
-        // getCharacterKey() reads saveMode, so changing it moves where a save lands. Get any
-        // pending edit written under the key it was made on before the switch, otherwise
-        // initProfile() below replaces localProfile and that edit either dies or, worse,
-        // gets saved under the new mode's key later.
-        cancelDebounce(_saveProfileDebouncedInner);
-        flushProfileSettingsToLoadedKey();
-        gs.saveMode = $(this).val();
-        saveSettingsDebounced();
-        initProfile(); // Immediately reloads the correct profile
-        toastr.success(`Save mode changed to Per ${gs.saveMode === 'chat' ? 'Chat' : 'Character'}.`);
-    });
-
     c.append($content);
+}
+
+// "Remember settings per": asks first, and says what happens (plan 020).
+async function changeSaveMode(mode, c) {
+    const gs = extension_settings[extensionName].globalSettings;
+    const current = gs.saveMode === "chat" ? "chat" : "character";
+    if (mode === current) return;
+    const text = mode === "chat"
+        ? "<p>Each chat keeps its own settings from now on. This chat starts from its character's settings; a change here stays with this chat only.</p><p style=\"opacity:0.75;\">Switching back to Character later brings back each character's settings as they are now.</p>"
+        : "<p>Every chat with a character uses that character's settings again. The settings you made for single chats are kept, and come back if you switch to Chat again.</p>";
+    const ok = await new Popup($(`<div style="text-align:left;"><h3 style="margin-top:0;">Remember settings per ${mode}?</h3>${text}</div>`),
+        POPUP_TYPE.CONFIRM, "", { okButton: `Per ${mode}`, cancelButton: "Cancel" }).show();
+    if (!ok) { renderGlobalSettings(c); return; }
+    // getCharacterKey() reads saveMode, so changing it moves where a save lands. Get any
+    // pending edit written under the key it was made on before the switch, otherwise
+    // initProfile() below replaces localProfile and that edit either dies or, worse,
+    // gets saved under the new mode's key later.
+    cancelDebounce(_saveProfileDebouncedInner);
+    flushProfileSettingsToLoadedKey();
+    gs.saveMode = mode;
+    saveSettingsDebounced();
+    initProfile(); // Immediately reloads the correct profile
+    toastr.success(`Settings are remembered per ${mode} now.`, "Megumin Suite");
+    // The whole tab, top bar included: "This character only" becomes "This chat only".
+    fireRefreshHook(REFRESH.SWITCH_TAB);
 }

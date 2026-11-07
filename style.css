@@ -8,6 +8,17 @@
     --text-muted: #a1a1aa;
     --accent-color: #ffffff;
     --gold: #f59e0b;
+    /* One job per hue (plan 020). The JS pages use these too, always with
+       the old colour as fallback: var(--c-live, #10b981). */
+    --c-brand:  #f59e0b;            /* chrome / nav / recommended        */
+    --c-select: #ffffff;            /* the chosen one-of-many            */
+    --c-live:   #10b981;            /* a boolean that is ON, success     */
+    --c-danger: #ef4444;            /* destructive                       */
+    --c-info:   #3b82f6;            /* neutral data / new / links        */
+    --c-ai:     #a855f7;            /* machine-authored surfaces         */
+    --c-chomu:  #f43f5e;            /* Chomusuke                         */
+    --c-warn:   #fbbf24;            /* a warning that isn't an error     */
+    --c-sky:    #38bdf8;            /* choices                           */
 }
 
 #prompt-slot-fixed-btn {
@@ -1757,28 +1768,8 @@
 }
 
 /* ================================================================
-   MOBILE RESPONSIVE — Sidebar Drawer Redesign
-   Desktop UI is completely untouched.
+   MOBILE RESPONSIVE
    ================================================================ */
-
-/* ── Drawer backdrop overlay (injected via JS) ── */
-.mobile-drawer-overlay {
-    display: none;
-    position: absolute;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.6);
-    z-index: 90;
-    opacity: 0;
-    transition: opacity 0.3s ease;
-}
-.mobile-drawer-overlay.open {
-    opacity: 1;
-}
-
-/* ── Hamburger button (injected via JS) ── */
-.mobile-hamburger {
-    display: none; /* Hidden on desktop */
-}
 
 @media (max-width: 768px) {
 
@@ -1887,33 +1878,11 @@
         width: auto !important;
     }
 
-    /* Everything the drawer needed and the bar does not: the header and footer
-       index.js injects into it, and the flex spacer that pushed Global Settings
-       to the bottom of a vertical rail. One rule, because they are exactly the
-       dock's non-tab children. */
+    /* Everything the rail has and the bar does not: the group headings (Story,
+       Helpers) and the flex spacer that pushes Settings to the bottom of the
+       rail. One rule, because they are exactly the dock's non-tab children. */
     .dock > *:not(.dock-icon) {
         display: none !important;
-    }
-
-    .mobile-drawer-overlay,
-    .mobile-hamburger {
-        display: none !important;
-    }
-
-    /* ── Drawer header (injected via JS inside dock) ── */
-    .mobile-drawer-header {
-        padding: 0 20px 16px 20px;
-        margin-bottom: 8px;
-        border-bottom: 1px solid var(--border-color);
-        flex-shrink: 0;
-    }
-    .mobile-drawer-header h3 {
-        font-size: 0.7rem;
-        font-weight: 700;
-        color: var(--text-muted);
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        margin: 0;
     }
 
     /* ── Dock icon: a pill. 44px tall is the touch-target floor. ── */
@@ -1980,43 +1949,6 @@
         border-left-width: 1px !important;
     }
 
-    /* ── Drawer footer (injected via JS at bottom of dock) ── */
-    .mobile-drawer-footer {
-        margin-top: auto;
-        padding: 12px 16px;
-        border-top: 1px solid var(--border-color);
-        display: flex;
-        flex-direction: column;
-        gap: 6px;
-        flex-shrink: 0;
-    }
-    .mobile-drawer-footer-btn {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 10px 14px;
-        border-radius: 8px;
-        background: var(--bg-main);
-        border: 1px solid var(--border-color);
-        color: var(--text-muted);
-        font-family: 'Inter', sans-serif;
-        font-size: 0.78rem;
-        font-weight: 600;
-        cursor: pointer;
-        transition: 0.15s;
-    }
-    .mobile-drawer-footer-btn:hover {
-        background: rgba(255, 255, 255, 0.05);
-    }
-    .mobile-drawer-footer-btn.danger {
-        color: #ef4444;
-        border-color: rgba(239, 68, 68, 0.3);
-    }
-    .mobile-drawer-footer-btn.sync-global {
-        color: var(--gold);
-        border-color: rgba(245, 158, 11, 0.3);
-    }
-
     /* ════════════════════════════════════════════════════
        HERO BANNER — kept with character pic
        ════════════════════════════════════════════════════ */
@@ -2050,7 +1982,7 @@
         font-size: 0.6rem !important;
     }
 
-    /* ── Top app bar — hamburger on left, actions on right ── */
+    /* ── Top app bar — actions on the right ── */
     .top-app-bar {
         padding-top: calc(10px + env(safe-area-inset-top, 0px)) !important;
         padding-bottom: 10px !important;
@@ -2058,10 +1990,6 @@
         padding-right: calc(12px + env(safe-area-inset-right, 0px)) !important;
         justify-content: space-between !important;
     }
-
-    /* No hamburger. Every tab is in the bar at the foot of the screen, so the
-       menu that used to open the drawer has nothing left to open. index.js
-       still injects the button; this is what keeps it off the screen. */
 
     .app-actions {
         gap: 6px !important;
@@ -2098,6 +2026,11 @@
 
     #btn_apply_tab_all i {
         font-size: 0.75rem !important;
+    }
+    /* The scope pill keeps its choice on the phone, drops "This tab:". */
+    #btn_apply_tab_all .meg-scope-pre,
+    #btn_apply_tab_all .meg-scope-caret {
+        display: none;
     }
 
     /* Token counter: compact */
@@ -2956,13 +2889,7 @@
 /* ---- 1. VOCABULARY (one job per hue) ----
    --gold / --accent-color above are kept; these are semantic aliases. */
 :root {
-  --c-brand:  #f59e0b;            /* chrome / nav / recommended        */
-  --c-select: #ffffff;            /* the chosen one-of-many            */
-  --c-live:   #10b981;            /* a boolean that is ON (knobs only) */
-  --c-danger: #ef4444;            /* destructive                       */
-  --c-info:   #3b82f6;            /* neutral data / new / links        */
-  --c-ai:     #a855f7;            /* machine-authored surfaces         */
-
+  /* The hue vocabulary (--c-*) moved to the :root at the top (plan 020). */
   --glass:        rgba(24,24,27,.55);
   --glass-lit:    rgba(40,40,46,.72);
   --glass-line:   rgba(255,255,255,.10);
@@ -3153,45 +3080,8 @@
 .cfg-master.active { border-color: rgba(16,185,129,.45); background: rgba(16,185,129,.06); }
 .cfg-master-title { font-size: .85rem; font-weight: 700; color: var(--text-main); }
 .cfg-master-title i { color: var(--gold); margin-right: 6px; }
-/* Story Config's own global-sync opt-out. Sits above the preset bar. */
-.cfg-sync-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 14px;
-    padding: 9px 12px;
-    border: 1px solid var(--border-color);
-    border-left: 3px solid var(--gold);
-    border-radius: 10px;
-    background: rgba(255, 255, 255, 0.02);
-}
-
-.cfg-sync-text {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-}
-
-.cfg-sync-label {
-    font-size: 0.72rem;
-    font-weight: 800;
-    color: var(--text-main);
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-}
-
-.cfg-sync-desc {
-    font-size: 0.66rem;
-    color: var(--text-muted);
-    line-height: 1.35;
-}
-
-.cfg-sync-btn {
-    flex: 0 0 auto;
-}
+/* "Keep Story Config with this character": a switch row above the preset bar. */
+.cfg-sync-row { margin-bottom: 14px; }
 
 .cfg-master-desc { font-size: .68rem; color: var(--text-muted); margin-top: 4px; line-height: 1.35; }
 
@@ -3401,6 +3291,59 @@ body.meg-chomu-busy #chat .mes.last_mes .meg-chomu + .meg-blocks-collapse { marg
   transition: opacity .15s ease, transform .15s ease;
 }
 .meg-choice:hover .meg-choice-go { opacity: 1; transform: translateX(0); }
+/* Under the input while a sent message waits for Chomusuke (plan 020). */
+.meg-waiting-line {
+  display: flex; align-items: center; gap: 8px;
+  margin: 4px 8px 2px; padding: 5px 10px; border-radius: 8px;
+  font-size: .78rem; color: var(--SmartThemeBodyColor, #ddd);
+  background: rgba(244,63,94,.10); border: 1px solid rgba(244,63,94,.3);
+}
+.meg-waiting-line > i { color: #f43f5e; animation: meg-chomu-pulse 1.2s ease-in-out infinite; }
+.meg-waiting-line > span { flex: 1; }
+.meg-waiting-stop {
+  padding: 2px 10px; border-radius: 6px; cursor: pointer;
+  border: 1px solid rgba(244,63,94,.45); background: transparent; color: #fda4af; font-size: .74rem;
+}
+.meg-waiting-stop:hover { background: rgba(244,63,94,.2); color: #fff; }
+@media (prefers-reduced-motion: reduce) { .meg-waiting-line > i { animation: none; } }
+
+/* The Notebook: how many truths can be live (plan 020). */
+.nbx-cap { display: flex; align-items: center; gap: 14px; margin: 10px 0 14px; padding: 10px 12px; border: 1px solid var(--border-color); border-radius: 10px; background: rgba(0,0,0,.18); }
+.nbx-cap label { flex: 1; display: flex; flex-direction: column; gap: 3px; font-size: .82rem; color: var(--text-main); }
+.nbx-cap small { font-size: .72rem; line-height: 1.4; color: var(--text-muted); }
+.nbx-cap input { width: 70px; text-align: center; }
+.nbx-keep { margin: 10px 0 0; }
+.meg-nb-add { float: right; margin: -4px 0 0 8px; font-size: .74rem; padding: 4px 10px; display: inline-flex; align-items: center; gap: 6px; text-transform: none; letter-spacing: 0; }
+.meg-nb-draft { padding: 1px 7px; border-radius: 999px; font-size: .62rem; font-weight: 800; color: #c4b5fd; background: rgba(139,92,246,.16); border: 1px solid rgba(139,92,246,.4); }
+
+/* Model Setup: a row of a loadout not in use yet (plan 020). */
+.msx-preview {
+    margin-left: 6px; padding: 1px 6px; border-radius: 999px;
+    font-size: .6rem; font-weight: 800; letter-spacing: .4px; text-transform: uppercase;
+    color: #93c5fd; background: rgba(59,130,246,.14); border: 1px solid rgba(59,130,246,.35);
+}
+
+/* Preset & Thinking (plan 020): choices a preset with its own thinking
+   ignores are greyed and can't be clicked; "Also set: …" after a pick. */
+.ptx-unused { opacity: .45; filter: grayscale(.6); }
+.ptx-unused > *:not(.igx-card-title) { pointer-events: none; }
+.ptx-also { margin: 2px 0 10px; }
+
+/* "World State · 3": what this reply changed, on the tab itself (plan 020). */
+.meg-blocks-tab .meg-tab-count {
+  margin-left: 4px; font-size: .68rem; font-weight: 800; color: #f59e0b;
+}
+
+/* Live choices: the arrow is a send button (plan 020), always there, faint
+   until you point at the choice, bright when you point at the arrow. */
+.meg-choice-go.meg-choice-send {
+  opacity: .55; transform: none;
+  display: grid; place-items: center;
+  width: 30px; height: 30px; margin: -4px -4px -4px 0; border-radius: 8px;
+  font-size: .78rem;
+}
+.meg-choice:hover .meg-choice-go.meg-choice-send { opacity: .85; }
+.meg-choice-go.meg-choice-send:hover { opacity: 1; background: rgba(56,189,248,.18); color: #7dd3fc; }
 
 .meg-choices-hint {
   margin-top: 9px; font-size: .6rem; line-height: 1.4;
@@ -3431,6 +3374,7 @@ body.meg-chomu-busy #chat .mes.last_mes .meg-chomu + .meg-blocks-collapse { marg
 @media (max-width: 560px) {
   .meg-choice { padding: 12px 11px; }
   .meg-choice-go { display: none; }
+  .meg-choice-go.meg-choice-send { display: grid; opacity: .8; width: 34px; height: 34px; }
 }
 
 /* ---- DICE - the roll, written before the scene ---- */
@@ -3608,6 +3552,20 @@ body.meg-chomu-busy #chat .mes.last_mes .meg-chomu + .meg-blocks-collapse { marg
 .meg-ws-mood.meg-ws-you {
   background: rgba(245,158,11,.16); color: #fcd34d; border-color: rgba(245,158,11,.3);
 }
+/* × on a character in the latest card: take them out of the scene (plan 020).
+   Faint until you point at the character; always plain on touch screens. */
+.meg-ws-remove {
+  flex: 0 0 auto; width: 24px; height: 24px; margin: 0 -4px 0 0; padding: 0;
+  display: grid; place-items: center; border-radius: 6px;
+  border: 1px solid transparent; background: transparent;
+  color: var(--text-muted, #9aa0a6); font-size: .78rem; cursor: pointer;
+  opacity: .35; transition: opacity .15s, background .15s, color .15s;
+}
+.meg-ws-person:hover .meg-ws-remove { opacity: .85; }
+.meg-ws-remove:hover, .meg-ws-remove:focus-visible {
+  opacity: 1; color: #fca5a5; background: rgba(239,68,68,.14); border-color: rgba(239,68,68,.35);
+}
+@media (hover: none) { .meg-ws-remove { opacity: .8; width: 30px; height: 30px; } }
 
 .meg-ws-rows { padding: 8px 11px 10px; display: grid; gap: 5px; }
 .meg-ws-row { display: grid; grid-template-columns: 62px 1fr; gap: 9px; font-size: .755rem; line-height: 1.5; }
@@ -3867,14 +3825,13 @@ body.meg-chomu-busy #chat .mes.last_mes .meg-chomu + .meg-blocks-collapse { marg
 .blk-sub-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .blk-sub-label { font-size: .72rem; font-weight: 600; color: var(--text-main); }
 .blk-sub-desc { font-size: .62rem; color: var(--text-muted); margin-top: 2px; line-height: 1.35; }
-/* World State settings: stacked, never label-beside-control, because this
-   panel lives in the narrow left column. */
-.blk-ws { gap: 10px; padding-left: 14px; }
-.blk-ws-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
-.blk-ws-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
-.blk-ws-field select.ps-modern-input { width: 100%; box-sizing: border-box; padding: 5px 8px; font-size: .74rem; }
-.blk-ws-field .blk-sub-desc { margin-top: 0; }
-.blk-ws-chips { display: flex; flex-direction: column; gap: 5px; }
+/* World State's row in the Blocks tab: one button to its own tab (plan 020). */
+.blk-ws { gap: 6px; padding-left: 14px; }
+.blk-ws-open {
+    align-self: flex-start; margin: 0;
+    font-size: .74rem; padding: 6px 10px;
+    display: inline-flex; align-items: center; gap: 6px;
+}
 .blk-ws-chip {
     display: flex; align-items: center; gap: 8px;
     font-size: .7rem; color: var(--text-main); cursor: pointer;
@@ -3882,15 +3839,54 @@ body.meg-chomu-busy #chat .mes.last_mes .meg-chomu + .meg-blocks-collapse { marg
     border: 1px solid var(--border-color); background: rgba(255,255,255,.02);
 }
 .blk-ws-chip input { margin: 0; flex: none; }
-.blk-ws-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.blk-ws-actions .menu_button {
-    width: 100%; margin: 0; box-sizing: border-box;
-    font-size: .7rem; padding: 6px 4px;
-    display: inline-flex; align-items: center; justify-content: center; gap: 5px;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+
+/* The World State tab (plan 020, features/worldstate/ui.js). */
+.wsx-actions { flex-wrap: wrap; gap: 8px; }
+.wsx-actions .menu_button { margin: 0; display: inline-flex; align-items: center; gap: 6px; }
+.wsx-actions .menu_button.is-on { color: #f59e0b; border-color: rgba(245,158,11,.5); }
+.wsx-actions .menu_button[disabled] { opacity: .45; cursor: not-allowed; }
+.wsx-preview { margin-top: 4px; }
+/* The tab's parts (plan 022): a small label over each choice, icon tiles, one row of actions */
+.wsx-sub { font-size: .72rem; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--text-muted); margin-top: 2px; }
+.wsx-choice .igx-tile b { display: inline-flex; align-items: center; gap: 7px; }
+.wsx-choice .igx-tile b i { color: #f59e0b; font-size: .8rem; width: 14px; text-align: center; }
+.wsx-choice .igx-tile[disabled] { opacity: .45; cursor: not-allowed; }
+.wsx-actions-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.wsx-actions-row .wsx-btn { margin: 0; display: inline-flex; align-items: center; gap: 7px; padding: 8px 14px; border-radius: 9px; font-weight: 600; }
+.wsx-actions-row .menu_button.wsx-btn-main { background-color: #f59e0b !important; color: #1c1206 !important; border-color: #f59e0b !important; opacity: 1; }
+.wsx-actions-row .menu_button.wsx-btn-main[disabled] { opacity: .45; }
+.wsx-actions-row .wsx-btn-main:hover:not([disabled]) { filter: brightness(1.08); }
+.wsx-actions-row .wsx-btn.is-on { color: #f59e0b; border-color: rgba(245,158,11,.5); }
+.wsx-actions-row .wsx-btn[disabled] { opacity: .45; cursor: not-allowed; }
+.wsx-howto-box { border: 1px solid var(--border-color); border-radius: 10px; background: rgba(0,0,0,.15); padding: 8px 12px; }
+.wsx-howto-box summary { cursor: pointer; font-size: .8rem; font-weight: 700; color: var(--text-main); display: flex; align-items: center; gap: 7px; list-style: none; }
+.wsx-howto-box summary::-webkit-details-marker { display: none; }
+.wsx-howto-box summary i { color: #f59e0b; }
+.wsx-howto-box[open] summary { margin-bottom: 2px; }
+/* Limits (plan 022): one tile per list, side by side, − number + */
+.wsx-limits { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.wsx-limit-tile { display: flex; flex-direction: column; align-items: center; gap: 6px; text-align: center; background: rgba(0,0,0,.2); border: 1px solid var(--border-color); border-radius: 10px; padding: 10px 10px 11px; }
+.wsx-limit-name { font-size: .8rem; font-weight: 700; color: var(--text-main); display: inline-flex; align-items: center; gap: 6px; }
+.wsx-limit-name i { color: #f59e0b; font-size: .78rem; }
+.wsx-step { display: inline-flex; align-items: center; gap: 4px; padding: 3px; border-radius: 9px; background: rgba(0,0,0,.25); border: 1px solid var(--border-color); }
+.wsx-step-btn { width: 26px; height: 26px; border: 0; border-radius: 7px; background: transparent; color: var(--text-muted); cursor: pointer; display: inline-flex; align-items: center; justify-content: center; font-size: .7rem; }
+.wsx-step-btn:hover:not([disabled]) { background: rgba(245,158,11,.15); color: #fbbf24; }
+.wsx-step-btn[disabled] { opacity: .35; cursor: not-allowed; }
+.wsx-step-val { min-width: 26px; font-size: 1rem; font-weight: 800; color: #fbbf24; font-variant-numeric: tabular-nums; }
+.wsx-limit-desc { font-size: .7rem; color: var(--text-muted); line-height: 1.35; }
+.wsx-limit-tile.is-unused { opacity: .55; }
+.wsx-limits.is-off .wsx-step-val { color: var(--text-muted); }
+.wsx-open-editor {
+    align-self: flex-start; margin: 4px 0 2px;
+    padding: 10px 18px; font-size: .9rem; font-weight: 700;
+    display: inline-flex; align-items: center; gap: 8px;
+    color: #f59e0b; border-color: rgba(245,158,11,.5); background: rgba(245,158,11,.1);
 }
-.blk-ws-actions .menu_button.is-on { color: #f59e0b; border-color: rgba(245,158,11,.5); }
-.blk-ws-actions .menu_button[disabled] { opacity: .45; cursor: not-allowed; }
+.wsx-open-editor:hover:not([disabled]) { background: rgba(245,158,11,.2); }
+.wsx-open-editor[disabled] { opacity: .45; cursor: not-allowed; }
+.wsx-howto { margin: 8px 0 0; padding-left: 18px; font-size: .78rem; line-height: 1.55; color: var(--text-muted); }
+.wsx-howto b { color: var(--text-main); }
+.wsx-howto li + li { margin-top: 3px; }
 
 /* System blocks in the BLOCKS tab: shown, never arranged */
 .blk-row-system { background: rgba(59,130,246,.05); border-style: dashed; }
@@ -5222,10 +5218,11 @@ body.meg-chomu-busy #chat .mes.last_mes .meg-chomu + .meg-blocks-collapse { marg
 .meg-nb-line { font-size: .8rem; line-height: 1.5; margin-bottom: 4px; }
 .meg-nb-how { font-size: .7rem; color: #10b981; }
 
-/* ── Dock groups (plan 011) ──────────────────────────────────────────────────
-   Story Setup and More Tools fold into one row each. The head is a dock icon
-   with a chevron; its tabs sit under it while it is open. A thin line marks
-   where each group starts, so it reads as a group with the dock closed too. */
+/* ── Dock groups (plan 011, plan 020) ────────────────────────────────────────
+   Legacy folds into one row. The head is a dock icon with a chevron; its tabs
+   sit under it while it is open. A thin line marks where each group starts,
+   so it reads as a group with the dock closed too. Story and Helpers are
+   headings (.dock-group-label) over tabs that always show. */
 .dock-group-head {
     position: relative;
 }
@@ -5272,6 +5269,155 @@ body.meg-chomu-busy #chat .mes.last_mes .meg-chomu + .meg-blocks-collapse { marg
 
 /* The tab you are in, after a group's name: shown on the phone bar only. */
 .dock-group-current { font-style: normal; display: none; }
+
+/* A heading over tabs that always show. On the icon rail it is a thin line
+   until the rail opens on hover; the phone bar hides it (non-tab child). */
+.dock-group-label {
+    position: relative;
+    flex-shrink: 0;
+    height: 28px;
+    padding: 12px 22px 0;
+    font-size: 0.62rem;
+    font-weight: 800;
+    letter-spacing: 0.9px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    white-space: nowrap;
+    box-sizing: border-box;
+}
+.dock-group-label::before {
+    content: "";
+    position: absolute;
+    top: 5px;
+    left: 12px;
+    right: 12px;
+    height: 1px;
+    background: rgba(255, 255, 255, 0.08);
+}
+.dock-group-label span { opacity: 0; transition: opacity 0.2s; }
+.dock:hover .dock-group-label span { opacity: 1; transition-delay: 0.1s; }
+
+/* Legacy: greyed, full colour when you point at it or are on one of its tabs. */
+.dock-legacy:not(.active):not(.has-active):not(:hover) { opacity: 0.6; }
+
+/* ── Dock with names (plan 020) ──────────────────────────────────────────────
+   Wide screens keep the labels on: a 200px column instead of the icon rail
+   that opened on hover. The window grows by the same 140px so the page keeps
+   its width. Under 900px the rail is back; at 768px the phone bar. */
+@media (min-width: 901px) {
+    .ps-modern-modal.app-container { width: 1190px; }
+    .dock {
+        width: 200px;
+        padding-top: 10px;
+        overflow-y: auto;
+        overflow-x: hidden;
+        scrollbar-width: none;
+        transition: none;
+    }
+    .dock::-webkit-scrollbar { width: 0; }
+    .dock:hover {
+        width: 200px;
+        box-shadow: var(--spec), 0 18px 40px -22px rgba(0, 0, 0, 0.8);
+    }
+    .dock-icon,
+    .dock-icon:hover,
+    .dock-icon.active {
+        width: auto;
+        height: 40px;
+        margin: 0 8px 2px;
+        padding: 0 12px;
+        border-radius: 8px;
+        flex-shrink: 0;
+    }
+    .dock-group-items .dock-icon { height: 36px; }
+    .dock-icon i { margin-right: 12px; }
+    .dock-icon span,
+    .dock-group-label span {
+        opacity: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .dock-group-label { padding-left: 20px; }
+    .dock-group-head .dock-group-chevron { opacity: 0.7; }
+    .main-content { padding-left: 240px; }
+}
+
+/* Page bar of a tab with pages (Writing Style · Language & rules). */
+.dock-pages { margin-bottom: 14px; }
+
+/* "This tab: This character only / Every character" (plan 020, tabs.js). */
+.meg-scope-btn { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; }
+.meg-scope-btn .meg-scope-pre { color: var(--text-muted); font-weight: 500; }
+.meg-scope-btn .meg-scope-caret { font-size: 0.7rem; opacity: 0.7; }
+.meg-scope-btn.scope-one { color: var(--gold); border-color: rgba(245, 158, 11, 0.3); }
+.meg-scope-btn.scope-every { color: #10b981; border-color: rgba(16, 185, 129, 0.45); }
+.meg-scope-btn.scope-shared,
+.meg-scope-btn.scope-shared:disabled { color: var(--text-muted); opacity: 0.8; cursor: default; }
+.meg-scope-menu {
+    position: absolute;
+    z-index: 130;
+    width: 290px;
+    max-width: calc(100% - 20px);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px;
+    border-radius: 12px;
+    background: rgba(24, 24, 28, 0.96);
+    border: 1px solid rgba(255, 255, 255, 0.13);
+    backdrop-filter: blur(22px);
+    -webkit-backdrop-filter: blur(22px);
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.6);
+}
+.meg-scope-head { padding: 4px 8px 6px; font-size: 0.68rem; font-weight: 800; letter-spacing: 0.5px; text-transform: uppercase; color: var(--text-muted); }
+.meg-scope-menu button {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 9px 10px;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--text-main);
+    text-align: left;
+    cursor: pointer;
+}
+.meg-scope-menu button > i { width: 18px; margin-top: 2px; text-align: center; color: var(--text-muted); }
+.meg-scope-menu button b { display: block; font-size: 0.85rem; }
+.meg-scope-menu button small { display: block; margin-top: 2px; font-size: 0.72rem; line-height: 1.35; color: var(--text-muted); }
+.meg-scope-menu button:hover { background: rgba(255, 255, 255, 0.07); }
+.meg-scope-menu button.on { background: rgba(245, 158, 11, 0.12); border-color: rgba(245, 158, 11, 0.4); }
+.meg-scope-menu button.on > i { color: var(--gold); }
+
+/* Settings → Data: the tabs shared right now. */
+.gs-shared { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border-color); display: flex; flex-direction: column; gap: 4px; }
+.gs-shared-row { font-size: 0.75rem; line-height: 1.4; color: var(--text-muted); }
+.gs-shared-row b { color: var(--text-main); }
+
+/* Use this loadout: what it changes, listed before anything is written. */
+.msx-changes { margin: 8px 0 0; padding-left: 18px; line-height: 1.6; }
+.msx-changes i { font-size: 0.7em; opacity: 0.6; margin: 0 4px; }
+
+/* Who does this job: one line on Memory and Story Director
+   (ui/chomusukeLine.js, plan 020). */
+.meg-chomu-line {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 4px 0 10px;
+    padding: 10px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: rgba(0, 0, 0, 0.2);
+    font-size: 0.78rem;
+    color: var(--text-muted);
+}
+.meg-chomu-line > i { color: #f43f5e; }
+.meg-chomu-line > span { flex: 1; min-width: 180px; }
+.meg-chomu-line b { color: var(--text-main); }
+.meg-chomu-line.on { border-color: rgba(16, 185, 129, 0.35); }
 
 /* Phone bar: groups are pills too. A group's tabs open in a small sheet above
    the bar (tabs.js, togglePhoneSheet), so the bar holds the main tabs, the two
@@ -5469,6 +5615,34 @@ body.meg-chomu-busy #chat .mes.last_mes .meg-chomu + .meg-blocks-collapse { marg
 .chx-conn select { max-width: 420px; }
 .chx-ok { color: #34d399; }
 .chx-bad { color: #f87171; }
+.chx-warn { color: #fbbf24; }
+.chx-offnote { margin: -4px 0 12px; }
+
+/* Setup checklist (plan 020, ui/checklist.js): Chomusuke and Images tabs. */
+.meg-check { border-left: 3px solid #f59e0b; }
+.meg-check.is-ready { border-left-color: #10b981; padding-top: 10px; padding-bottom: 10px; }
+.meg-check-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.meg-check-title { font-size: .9rem; font-weight: 700; color: var(--text-main); }
+.meg-check-title i { color: #f59e0b; margin-right: 4px; }
+.meg-check.is-ready .meg-check-title i { color: #10b981; }
+.meg-check-title small { margin-left: 6px; font-size: .72rem; font-weight: 500; color: var(--text-muted); }
+.meg-check-toggle { margin: 0; }
+.meg-check-steps { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.meg-check-step { display: flex; gap: 12px; align-items: flex-start; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border-color); background: rgba(0,0,0,.18); }
+.meg-check-step.is-next { border-color: rgba(245,158,11,.45); background: rgba(245,158,11,.06); }
+.meg-check-step.is-done { opacity: .85; }
+.meg-check-num {
+    flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%;
+    display: grid; place-items: center; font-size: .78rem; font-weight: 800;
+    background: rgba(255,255,255,.08); color: var(--text-muted);
+}
+.meg-check-step.is-next .meg-check-num { background: rgba(245,158,11,.22); color: #fcd34d; }
+.meg-check-step.is-done .meg-check-num { background: rgba(16,185,129,.2); color: #34d399; }
+.meg-check-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.meg-check-step-title { font-size: .86rem; font-weight: 700; color: var(--text-main); padding-top: 3px; }
+.meg-check-note { font-size: .74rem; color: var(--text-muted); }
+.meg-check-body:empty { display: none; }
+.meg-check-body .igx-banner { margin: 0; }
 .chx-cost { display: flex; gap: 8px; align-items: baseline; font-size: .82rem; line-height: 1.5; padding: 8px 12px; border-radius: 9px; background: rgba(245,158,11,.08); border: 1px solid rgba(245,158,11,.22); }
 .chx-cost i { color: #f59e0b; }
 .chx-cost b { color: #fbbf24; }
@@ -5553,3 +5727,178 @@ body.meg-chomu-busy #chat .mes.last_mes .meg-chomu + .meg-blocks-collapse { marg
 @media (max-width: 560px) {
     .meg-nbc-row { grid-template-columns: 1fr; gap: 1px; }
 }
+
+
+/* ── Dev Mode: the preset file, the doors, the full prompt (plan 025) ───── */
+
+/* The stage is a scrolling flex column: these keep their height. */
+.dev-json, .dev-tools, .dev-json-doc-head, .dev-pv-legend, .dev-pv-card, .dev-pv-off { flex-shrink: 0; }
+
+.dev-json {
+    border: 1px solid var(--border-color);
+    border-radius: 14px;
+    padding: 14px 16px;
+    margin: 6px 0 14px 0;
+    background: var(--bg-panel);
+}
+
+.dev-json-title { font-weight: 800; font-size: 1rem; margin-bottom: 6px; }
+.dev-json-title i { color: #60a5fa; margin-right: 6px; }
+.dev-json-desc { font-size: 0.8rem; line-height: 1.6; color: var(--text-muted); }
+.dev-json-desc b { color: var(--text-main); }
+
+.dev-json-cards { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
+
+.dev-json-card {
+    flex: 1 1 220px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+    padding: 11px 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    background: transparent;
+    color: var(--text-main);
+    cursor: pointer;
+    text-align: left;
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.dev-json-card:hover { border-color: rgba(96, 165, 250, 0.6); }
+.dev-json-card.is-picked { border-color: #60a5fa; background: rgba(96, 165, 250, 0.1); box-shadow: inset 0 0 0 1px #60a5fa; }
+.dev-json-name { font-weight: 750; font-size: 0.92rem; }
+.dev-json-file { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.68rem; color: var(--text-muted); word-break: break-all; }
+.dev-json-using { font-size: 0.7rem; font-weight: 700; color: #10b981; margin-top: 2px; }
+
+.dev-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 14px; }
+.dev-tools .ps-modern-btn { padding: 7px 14px; font-size: 0.8rem; border-radius: 8px; }
+
+.dev-door-small { padding: 14px 16px; flex: 1 1 200px; }
+.dev-door-small .dev-door-icon { font-size: 1.3rem; margin-bottom: 6px; }
+.dev-door-small .dev-door-title { font-size: 1.02rem; margin-bottom: 4px; }
+.dev-door-small .dev-door-desc { font-size: 0.78rem; margin-bottom: 8px; }
+.dev-door-small .dev-door-meta { margin-bottom: 0; }
+
+.dev-door-chomu { border-color: rgba(192, 132, 252, 0.45); background: linear-gradient(150deg, rgba(192, 132, 252, 0.13), rgba(192, 132, 252, 0.03)); }
+.dev-door-chomu:hover { border-color: #c084fc; }
+.dev-door-chomu .dev-door-icon, .dev-door-chomu .dev-door-title { color: #c084fc; }
+
+.dev-door-images { border-color: rgba(56, 189, 248, 0.45); background: linear-gradient(150deg, rgba(56, 189, 248, 0.13), rgba(56, 189, 248, 0.03)); }
+.dev-door-images:hover { border-color: #38bdf8; }
+.dev-door-images .dev-door-icon, .dev-door-images .dev-door-title { color: #38bdf8; }
+
+.dev-json-doc-head { display: flex; flex-direction: column; gap: 2px; margin: 18px 0 10px 0; }
+.dev-json-doc-head span { font-weight: 800; font-size: 0.95rem; word-break: break-word; }
+.dev-json-doc-head small { font-size: 0.75rem; color: var(--text-muted); }
+
+.dev-card.is-off { opacity: 0.5; }
+.dev-chip.scope-engine { border-left-color: var(--gold); }
+.dev-chip.scope-engine > i:first-child { color: var(--gold); }
+
+/* The full prompt preview */
+
+.dev-pv-legend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    font-size: 0.74rem;
+}
+
+.dev-pv-legend small { flex: 1 1 100%; color: var(--text-muted); line-height: 1.5; }
+
+.dev-pv-card {
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    margin-bottom: 10px;
+    background: var(--bg-panel);
+    overflow: hidden;
+}
+
+.dev-pv-card.is-st { border-style: dashed; background: transparent; }
+
+.dev-pv-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.dev-pv-card.is-st .dev-pv-head { border-bottom: 0; }
+.dev-pv-name { font-weight: 750; font-size: 0.84rem; }
+.dev-pv-note { font-size: 0.74rem; color: var(--text-muted); }
+
+.dev-pv-role {
+    font-size: 0.66rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    padding: 1px 7px;
+    border-radius: 999px;
+    border: 1px solid var(--border-color);
+    color: var(--text-muted);
+}
+
+.dev-pv-role.role-user { color: #60a5fa; border-color: rgba(96, 165, 250, 0.4); }
+.dev-pv-role.role-assistant { color: #f472b6; border-color: rgba(244, 114, 182, 0.4); }
+
+.dev-pv-body {
+    padding: 10px 12px;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    font-size: 0.74rem;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 520px;
+    overflow-y: auto;
+}
+
+.dev-pv-piece {
+    border-radius: 3px;
+    text-decoration-thickness: 2px;
+    text-underline-offset: 3px;
+    -webkit-box-decoration-break: clone;
+    box-decoration-break: clone;
+}
+
+.dev-pv-legend .dev-pv-piece { padding: 2px 8px; font-family: inherit; }
+
+.dev-pv-piece.is-edited { background: rgba(244, 114, 182, 0.18); text-decoration: underline rgba(244, 114, 182, 0.8); }
+.dev-pv-piece.is-default { background: rgba(16, 185, 129, 0.13); text-decoration: underline rgba(16, 185, 129, 0.6); }
+.dev-pv-piece.is-preset { background: rgba(245, 158, 11, 0.11); text-decoration: underline rgba(245, 158, 11, 0.5); }
+.dev-pv-piece.is-auto { background: rgba(161, 161, 170, 0.1); }
+
+.dev-pv-piece.is-link { cursor: pointer; }
+.dev-pv-piece.is-link:hover { outline: 1px solid currentColor; }
+
+.dev-pv-off { font-size: 0.74rem; color: var(--text-muted); text-align: center; margin: 4px 0 10px 0; }
+
+/* Parts that send nothing: off, or empty this turn. */
+.dev-pv-empty {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    margin: 2px 4px 2px 0;
+    padding: 1px 8px;
+    border-radius: 999px;
+    border: 1px dashed var(--border-color);
+    font-family: inherit;
+    font-size: 0.68rem;
+    line-height: 1.5;
+    white-space: nowrap;
+    vertical-align: middle;
+    color: var(--text-muted);
+}
+.dev-pv-empty i { font-size: 0.62rem; }
+.dev-pv-empty.is-off { color: #fca5a5; border-color: rgba(239, 68, 68, 0.45); background: rgba(239, 68, 68, 0.07); }
+.dev-pv-empty.is-link { cursor: pointer; }
+.dev-pv-empty.is-link:hover { border-style: solid; }
+.dev-pv-card.is-disabled { opacity: 0.85; }
+.dev-pv-chips { display: flex; flex-wrap: wrap; gap: 4px; padding: 0 12px 10px 12px; }
+.dev-pv-leftout { align-items: center; }

@@ -18,6 +18,7 @@
 import { localProfile } from "../../core/state.js";
 import { escapeRegex } from "../../utils/regex.js";
 import { NPC_DOSSIER_RULES, npcPersistenceRuleSplit, npcUpdateRulesSplit } from "../../prompts/v11Rules.js";
+import { editable } from "../../prompts/edits.js";
 
 // ── Field types ─────────────────────────────────────────────────────────────
 //
@@ -450,7 +451,7 @@ export function npcBuildDossierPromptSplit() {
     const labels = npcBodyFields().filter(f => f.persistent && f.system !== "imageTags").map(f => f.label);
     // The built-in Image Tags hint points at the old rules' key name.
     const template = npcBuildDossierTemplate().replace("see image_tag_rule", "see Image Tags below");
-    return NPC_DOSSIER_RULES
+    return editable("v11NpcDossierRules", NPC_DOSSIER_RULES)
         .split("{{template}}").join(template)
         .split("{{persistenceRule}}").join(npcPersistenceRuleSplit(labels))
         .replace(/\n{3,}/g, "\n\n");

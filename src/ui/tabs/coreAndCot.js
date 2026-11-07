@@ -79,13 +79,13 @@ const DESCRIPTIONS = {
     "v6-anime-director": "Advanced cinematic framing and pacing. Designed to emulate high-budget anime direction.",
     "v6-dream-team": "The ultimate 6-specialist writer room. Unprecedented narrative consistency and realism.",
     "v6-dream-team-lite": "A streamlined version of the Dream Team. Faster generation with lower token overhead.",
-    "v7-core": "The V7 Core engine. The perfect middle ground: cinematic pacing, realistic friction, and relentless world progression.",
-    "v7-reality": "The V7 Reality engine. Grounded, unrelenting simulation with zero narrative protection.",
-    "v7-gentle": "The V7 Gentle engine. A softer, more intimate storytelling flow.",
-    "v7.5": "The Kismet engine. Focused purely on inescapable narrative momentum, pushing the story forward as the unseen author of fate.",
+    "v7-core": "The V7 Core preset. The perfect middle ground: cinematic pacing, realistic friction, and relentless world progression.",
+    "v7-reality": "The V7 Reality preset. Grounded, unrelenting simulation with zero narrative protection.",
+    "v7-gentle": "The V7 Gentle preset. A softer, more intimate storytelling flow.",
+    "v7.5": "The Kismet preset. Focused purely on inescapable narrative momentum, pushing the story forward as the unseen author of fate.",
     "v8-m": "Unmatched in complex human psychology, authentic flawed dialogue, and autonomous, multi-layered story plotting.",
     "v8-lite": "A streamlined, highly efficient version of Obsidian. Retains the core rules of psychology, dialogue, and momentum with a much lighter token footprint.",
-    "v8-fusion": "The absolute pinnacle of the Megumin Suite. A hybrid engine mixing V8 Obsidian's deep psychology with V6 Dream Team's specialist writer room framework.",
+    "v8-fusion": "The absolute pinnacle of the Megumin Suite. A hybrid preset mixing V8 Obsidian's deep psychology with V6 Dream Team's specialist writer room framework.",
     "v11-voice": "One storyteller writes the whole turn, plainly and with a voice of its own. Characters play their sheets at full strength, the world goes on without you, and a notebook keeps the story's hidden truths until they come out. The base for every model.",
     "v11-deepseek": "V11 Тайна with one more line for DeepSeek, which tends to treat the character as the player and leave them doing nothing: the character and everyone else in the story are the AI's to write and to move. Use it with Chomusuke writing the blocks, since DeepSeek leaves them out.",
     "v11-writers-room": "V11 Тайна written by a room of five: a director, a psychologist, a story architect, a storyteller and a dialogue writer talk the turn over in the thinking before it is written.",
@@ -95,7 +95,7 @@ const DESCRIPTIONS = {
     "v10-core-cw": "Ukiyo, with the narrator writing {{user}} as well. It reads how you write — diction, rhythm, how boldly you act — and plays your character in that voice. Anything you write yourself is canon and is never overwritten or corrected. Your history stays yours; only the acting is shared.",
     "v10-shura-cw": "Shura with shared authorship: every character is a protagonist, {{user}} among them, and the narrator writes them all in your voice. It yields the moment you take a turn back, and never invents your past. For hands-off, cinematic play — watching the story rather than steering each beat.",
     "v9-core": "The definitive, final Megumin V9 Preset. V9 Mirage is the absolute pinnacle of narrative simulation, delivering hyper-realistic psychology, visceral atmospheric grounding, and dynamic world consequences. This is the ultimate, highly recommended preset.",
-    "v9-lite": "An experimental beta engine with a slightly different, highly stylized narrative flow. Proved interesting enough to include for those who want an alternative storytelling rhythm. Note: this doesn't support custom Writing style it have it own one. ",
+    "v9-lite": "An experimental beta preset with a slightly different, highly stylized narrative flow. Proved interesting enough to include for those who want an alternative storytelling rhythm. Note: this doesn't support custom Writing style it have it own one. ",
     "v9-director": "A unique beta hybrid blending the specialized writer-room mechanics of V8 Fusion with the raw psychological depth of V9 Xin. Highly experimental. Note: this doesn't support custom Writing style it have it own one.",
     "v9-immersion": "A streamlined, lightweight version of V9 Mirage. It retains the core philosophy and brutal realism of Mirage but runs with a smaller context footprint. V9 Mirage is still recommended if your model can handle it."
 };
@@ -113,18 +113,18 @@ const COT_TYPES = [
     { id: "v10-shura-cap", label: "CoT V10 Shura — Thinking Cap", desc: "The same seven rules with a hard ceiling on the thinking phase. For models that over-think.", isNew: true },
     { id: "v1", label: "CoT V1 (Classic)", desc: "The original 8-step framework. Focuses heavily on the NPC's internal emotional landscape vs their observable actions." },
     { id: "v2", label: "CoT V2 (New)", desc: "The new experimental framework. Stricter reality checks, info audits, better NPCs, and hook generation." },
-    { id: "v6", label: "CoT V6 (Dream Team)", desc: "The full 4-phase sequence designed specifically for V6 engines. Specialized validation and modeling." },
+    { id: "v6", label: "CoT V6 (Dream Team)", desc: "The full 4-phase sequence designed specifically for V6 presets. Specialized validation and modeling." },
     { id: "v6-lite", label: "CoT V6 (Lite)", desc: "A streamlined 3-phase sequence. Less token overhead while maintaining narrative rules." },
     { id: "v7", label: "CoT V7", desc: "The new V7 sequence with 5-phase strict ground truth rebuilding." },
     { id: "v7-lite", label: "CoT V7 (Lite)", desc: "A streamlined 5-phase sequence for V7." },
-    { id: "v7.5", label: "CoT V7.5 Kismet", desc: "The new V7.5 sequence focused on story engine mechanics." },
+    { id: "v7.5", label: "CoT V7.5 Kismet", desc: "The new V7.5 sequence, focused on what drives the story forward." },
     { id: "v8", label: "CoT V8", desc: "The new V8 narrative processing sequence." },
     { id: "v8-fusion", label: "CoT V8 Fusion", desc: "The new V8 Fusion narrative processing sequence." },
-    { id: "v9", label: "CoT V9 Mirage", desc: "The primary and most balanced reasoning sequence, purpose-built for the V9 Mirage engine. The gold standard for modern roleplay.", isNew: true },
+    { id: "v9", label: "CoT V9 Mirage", desc: "The primary and most balanced reasoning sequence, purpose-built for the V9 Mirage preset. The gold standard for modern roleplay.", isNew: true },
     { id: "v9-director", label: "CoT V9 Mirage Air", desc: "A lighter, version of CoT V9 Mirage, it give Different output Try and see if you like.", isNew: true },
     { id: "v9-immersion", label: "CoT V9 Mirage Max", desc: "The heavy-duty, maximum-thinking sequence. Forces the AI to dive incredibly deep into sensory data and psychological realism before generating a single word.", isNew: true },
-    { id: "v9-hybrid", label: "CoT V9 Kuromaku", desc: "A specialized multi-agent reasoning sequence designed specifically to pair with the V9 Kuromaku engine.", isNew: true },
-    { id: "v9-lite", label: "CoT V9 Cui (Lite)", desc: "A highly streamlined, fast-executing reasoning sequence perfectly paired with the V9 Cui engine to save tokens.", isNew: true }
+    { id: "v9-hybrid", label: "CoT V9 Kuromaku", desc: "A specialized multi-agent reasoning sequence designed specifically to pair with the V9 Kuromaku preset.", isNew: true },
+    { id: "v9-lite", label: "CoT V9 Cui (Lite)", desc: "A highly streamlined, fast-executing reasoning sequence perfectly paired with the V9 Cui preset to save tokens.", isNew: true }
 ];
 
 const ALL_LANGS = [
@@ -233,7 +233,7 @@ export function renderCoreAndCot(c) {
     c.append(`
         <div class="mtab-header">
             <div class="mtab-header-left">
-                <div class="mtab-header-icon" style="background: linear-gradient(135deg, #f59e0b, #a855f7);"><i class="fa-solid fa-server"></i></div>
+                <div class="mtab-header-icon" style="background: linear-gradient(135deg, #f59e0b, var(--c-ai, #a855f7));"><i class="fa-solid fa-server"></i></div>
                 <div><h2>Preset & Thinking</h2><p>Choose the preset, how it thinks before it writes, and the story's standing settings.</p></div>
             </div>
             <button type="button" class="menu_button ptx-guide-btn" title="Open Model Setup: the settings tested for the model you use"><i class="fa-solid fa-compass"></i> Model Setup</button>
@@ -241,7 +241,7 @@ export function renderCoreAndCot(c) {
         <div class="igx-chips ptx-summary">
             <span class="igx-chip ok"><i class="fa-solid fa-server"></i> ${esc(active ? active.label : localProfile.mode)}</span>
             <span class="igx-chip ${localProfile.cotEnabled ? "warm" : ""}"><i class="fa-solid fa-brain"></i> Thinking: ${localProfile.cotEnabled ? esc(cotLabel) : "off"}</span>
-            <span class="igx-chip"><i class="fa-solid fa-sliders"></i> Story Config: ${cfgCount ? `${cfgCount} set` : "preset defaults"}</span>
+            <span class="igx-chip"><i class="fa-solid fa-sliders"></i> Story settings: ${cfgCount ? `${cfgCount} set` : "preset defaults"}</span>
         </div>
     `);
 
@@ -250,7 +250,7 @@ export function renderCoreAndCot(c) {
     const pages = [
         { id: "preset", label: "Preset", icon: "fa-server" },
         { id: "thinking", label: "Thinking", icon: "fa-brain" },
-        { id: "config", label: "Story Config", icon: "fa-sliders" }
+        { id: "config", label: "Story settings", icon: "fa-sliders" }
     ];
     const $tabs = $(`<div class="igx-tabs" role="tablist"></div>`);
     pages.forEach(p => {
@@ -269,7 +269,13 @@ export function renderCoreAndCot(c) {
 
 // ── Preset page ──────────────────────────────────────────────────────────
 
+// What picking a preset also changed (plan 020), shown under the picker
+// until another preset is picked: { presetId, text }.
+let alsoSet = null;
+
 function pickPreset(m) {
+    const styleBefore = localProfile.activeStyleId;
+    const cotBefore = localProfile.model;
     localProfile.mode = m.id;
     // Same mapping the Writing Style tab uses when it finds a locked preset with
     // no style set. One list, so the two cannot disagree. Your own style, or a
@@ -288,6 +294,17 @@ function pickPreset(m) {
     const targetCot = meguminCotForMode(m.id, currentLang);
     if (targetCot) localProfile.model = targetCot;
     saveProfileToMemory();
+
+    const parts = [];
+    if (localProfile.model !== cotBefore) {
+        const t = COT_TYPES.find(x => x.id === parseCot(localProfile.model).type);
+        if (t) parts.push(`Thinking → ${t.label}`);
+    }
+    if (localProfile.activeStyleId !== styleBefore) {
+        const ds = hardcodedLogic.directStyles.find(x => x.id === localProfile.activeStyleId);
+        if (ds) parts.push(`Writing Style → ${ds.name}`);
+    }
+    alsoSet = parts.length ? { presetId: m.id, text: `Also set: ${parts.join(", ")}.` } : null;
 }
 
 function badgesFor(m, isLocked) {
@@ -328,6 +345,9 @@ function renderPresetPage(c, { active, activeIsCustom, official, customModes, re
     // ── Choose a preset ──
     if (!presetFilter) presetFilter = activeIsCustom ? "mine" : (active && !LATEST.includes(versionOf(active)) ? "all" : "latest");
     const pick = pageCard("Choose a preset");
+    if (alsoSet && alsoSet.presetId === localProfile.mode) {
+        pick.append(`<div class="igx-note ptx-also"><i class="fa-solid fa-circle-info"></i> ${esc(alsoSet.text)} You can change them on their pages.</div>`);
+    }
     const latestCount = official.filter(m => LATEST.includes(versionOf(m))).length;
     pick.append(segmented([
         { id: "latest", label: `Latest (${latestCount})` },
@@ -357,7 +377,7 @@ function presetCard(m, { custom, rerender }) {
             <div class="ecard-body">
                 <div class="ecard-title">
                     <span>${esc(m.label)}</span>
-                    ${isSel ? `<span class="ecard-badge" style="background:rgba(16,185,129,0.15);color:#10b981;"><i class="fa-solid fa-check"></i> Active</span>` : ""}
+                    ${isSel ? `<span class="ecard-badge" style="background:rgba(16,185,129,0.15);color:var(--c-live, #10b981);"><i class="fa-solid fa-check"></i> Active</span>` : ""}
                     ${custom ? `<button type="button" class="ps-modern-btn secondary btn-quick-edit ptx-edit"><i class="fa-solid fa-pen"></i> Edit</button>` : ""}
                 </div>
                 <p class="ecard-desc" title="${esc(custom ? "" : (DESCRIPTIONS[m.id] || ""))}">${custom ? "One of your own presets." : (DESCRIPTIONS[m.id] || "")}</p>
@@ -392,14 +412,18 @@ function renderThinkingPage(c, { active, cot, rerender }) {
     c.append(main);
     if (!localProfile.cotEnabled) return;
 
-    if (active && active.cot && active.cot.trim() !== "") {
+    // A preset with its own thinking steps ignores the choices below: they are
+    // greyed and can't be clicked (plan 020), not left live and doing nothing.
+    const ownThinking = Boolean(active && active.cot && active.cot.trim() !== "");
+    if (ownThinking) {
         c.append(`
             <div class="mtab-callout green" style="margin-bottom:14px;">
                 <i class="fa-solid fa-shield-halved"></i>
-                <span><strong>This preset brings its own thinking.</strong> It carries its own [[COT]] and [[prefill]], so the choices below are not used.</span>
+                <span><strong>This preset has its own thinking steps.</strong> The choices below aren't used while it's picked, so they're greyed out.</span>
             </div>
         `);
     }
+    const unused = $el => (ownThinking ? $el.addClass("ptx-unused").attr("title", "This preset has its own thinking steps") : $el);
 
     // ── Framework ──
     const allowed = cotTypesFor(localProfile.mode);
@@ -410,14 +434,14 @@ function renderThinkingPage(c, { active, cot, rerender }) {
         const isSel = cot.type === t.id;
         const warned = allowed && !allowed.includes(t.id);
         const badge = warned
-            ? `<span class="ecard-badge" style="background:rgba(245,158,11,0.15);color:#f59e0b;"><i class="fa-solid fa-triangle-exclamation"></i> Made for another preset</span>`
+            ? `<span class="ecard-badge" style="background:rgba(245,158,11,0.15);color:var(--c-brand, #f59e0b);"><i class="fa-solid fa-triangle-exclamation"></i> Made for another preset</span>`
             : (t.isNew ? `<span class="ecard-badge new">New</span>` : "");
         const $card = $(`
             <div class="mtab-eng-card ptx-cot ${isSel ? "active" : ""}">
                 <div class="ecard-accent"></div>
                 <div class="ecard-body">
                     <div class="ecard-title"><span>${t.label}</span>
-                        ${isSel ? `<span class="ecard-badge" style="background:rgba(168,85,247,0.15);color:#a855f7;"><i class="fa-solid fa-check"></i> Active</span>` : ""}
+                        ${isSel ? `<span class="ecard-badge" style="background:rgba(168,85,247,0.15);color:var(--c-ai, #a855f7);"><i class="fa-solid fa-check"></i> Active</span>` : ""}
                     </div>
                     <p class="ecard-desc">${t.desc}</p>
                     ${badge ? `<div class="ptx-badges">${badge}</div>` : ""}
@@ -441,7 +465,7 @@ function renderThinkingPage(c, { active, cot, rerender }) {
             onChange: on => { showAllCot = on; rerender(); }
         }));
     }
-    c.append(fw);
+    c.append(unused(fw));
 
     // ── Length (a Thinking Cap sets its own) ──
     if (!localProfile.thinkEffort) localProfile.thinkEffort = "unspecified";
@@ -454,7 +478,7 @@ function renderThinkingPage(c, { active, cot, rerender }) {
                 <span>For Kimi and DeepSeek, a temperature of 0.7–0.8 also helps them think less. Kimi ignores Reasoning Effort: it only thinks or doesn't.</span>
             </div>
         `);
-        c.append(capLen);
+        c.append(unused(capLen));
     } else {
         const len = pageCard("How long it thinks");
         const $custom = field("Words", "", $(`<input type="number" id="ps_input_custom_effort" class="ps-modern-input igx-tiny" min="1" value="${esc(localProfile.customThinkEffort)}" />`));
@@ -469,7 +493,7 @@ function renderThinkingPage(c, { active, cot, rerender }) {
         }));
         $custom.find("input").on("change input", function () { localProfile.customThinkEffort = $(this).val(); saveProfileToMemory(); });
         len.append($custom);
-        c.append(len);
+        c.append(unused(len));
     }
 
     // ── Language: only where the framework has more than English ──
@@ -479,7 +503,7 @@ function renderThinkingPage(c, { active, cot, rerender }) {
             localProfile.model = `cot-${cot.type}-${id}`;
             saveProfileToMemory();
         }));
-        c.append(lang);
+        c.append(unused(lang));
     }
 
     // ── Advanced ──

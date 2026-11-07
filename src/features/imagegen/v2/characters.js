@@ -8,9 +8,20 @@ import { localProfile } from "../../../core/state.js";
 import { saveProfileToMemory } from "../../../core/profile.js";
 import { Popup, POPUP_TYPE } from "../../../st.js";
 import { v2Settings, currentImageCast, getLooks } from "./index.js";
-import { scanLooks, describeLooks, sheetSource } from "./looks.js";
-import { findLookKey, outfitHash } from "./looksCore.js";
-import { card, busy, esc } from "../../../ui/controls.js";
+import { scanLooks, describeLooks, sheetSource, sortOldLooks } from "./looks.js";
+import { findLookKey, outfitHash, qwenFrom } from "./looksCore.js";
+import { LOOK_REGIONS, OUTFIT_REGIONS, regionsToParts, joinRegions, isSorted } from "./regions.js";
+import { card, busy, esc, confirmPopup } from "../../../ui/controls.js";
+
+// Plan 027: the look's boxes, by where each part shows on the body.
+const LOOK_FIELDS = {
+    core: ["Whole body", "Sex, age, skin and build. In every image.", "female, young adult, fair skin, slim"],
+    head: ["Head and face", "Hair, eyes and marks on the face. In every image.", "short brown hair, blue eyes, freckles"],
+    upper: ["Chest and arms", "When the image shows them from the chest down.", "large breasts, toned arms"],
+    lower: ["Hips and legs", "When the image shows their hips and legs.", "wide hips, long legs"],
+    feet: ["Feet", "Only when their feet are in the image. Most characters have nothing here.", ""]
+};
+const OUTFIT_FIELDS = { head: "Head", upper: "Top", lower: "Bottom", feet: "Feet" };
 
 const SOURCE_LABEL = { npc: "from the NPC Bank", sheet: "read from the card", chat: "read from the chat", manual: "written by you" };
 
@@ -52,7 +63,7 @@ export function renderCharacters(c, { redraw }) {
     const cardFor = m => {
         const k = findLookKey(looks, m.name, m.aliases || []);
         const stored = k ? looks[k] : null;
-        const lookText = m.look || (cfg.style === "natural" ? m.lookNatural : "") || "";
+        const lookText = (cfg.style === "qwen" ? m.lookQwen : "") || m.look || (cfg.style === "natural" ? m.lookNatural : "") || "";
         const $c = $(`<button type="button" class="igx-char ${inStory(m) ? "" : "is-away"}">
             <span class="igx-char-head"><b>${esc(m.name)}</b><span class="igx-chip ${whereClass(m)}">${whereOf(m)}</span></span>
             <span class="igx-char-line"><em>Look</em>${lookText ? esc(lookText) : `<i>none yet</i>`}</span>
@@ -119,8 +130,12 @@ async function openLookEditor(name, redraw) {
         const looks = getLooks();
         const k = findLookKey(looks, member.name, member.aliases || []);
         const stored = k ? looks[k] : null;
-        const detailed = cfg.outfitTags && cfg.style === "tags";
+        const detailed = true;   // plan 027: every style has outfit tags by part
+        const qwen = cfg.style === "qwen";
         const outfitLocked = Boolean(stored && stored.outfitTags && stored.outfitTags.locked);
+        // A look sorted by body part, or none yet, is edited part by part.
+        const sortedView = isSorted(stored) || !String(member.look || member.body || "").trim();
+        const outfitRegions = !member.outfitStale && member.outfitCache && member.outfitCache.regions;
         const nicknames = [...new Set([...(stored ? stored.aliases || [] : []), ...(member.aliases || [])])].join(", ");
         // A card can describe more than its own character, so the button shows whenever there is one.
         const hasCard = Boolean(sheetSource());
@@ -132,19 +147,36 @@ async function openLookEditor(name, redraw) {
             </div>
             <label class="igx-field"><div class="igx-field-label">Nicknames <small>Other names the story uses, separated by commas</small></div>
                 <input type="text" class="ps-modern-input igx-ed-aliases" value="${esc(nicknames)}" placeholder="Matt, Matty" /></label>
+            ${sortedView ? `
+            <div class="igx-field-label">Look <small>Permanent appearance, by where it shows on the body</small></div>
+            ${LOOK_REGIONS.map(r => `
+            <label class="igx-field"><div class="igx-field-label">${LOOK_FIELDS[r][0]} <small>${LOOK_FIELDS[r][1]}</small></div>
+                <textarea class="ps-modern-input igx-ed-region" data-region="${r}" rows="1" placeholder="${esc(LOOK_FIELDS[r][2])}">${esc(stored && stored.regions ? stored.regions[r] || "" : "")}</textarea></label>`).join("")}` : `
             <label class="igx-field"><div class="igx-field-label">Look <small>Permanent appearance, in every image</small></div>
                 <textarea class="ps-modern-input igx-ed-tags" rows="3" placeholder="female, long blue hair, blue eyes, pale skin…">${esc(member.look)}</textarea></label>
             <label class="igx-field"><div class="igx-field-label">Body <small>Only in full-body shots</small></div>
                 <textarea class="ps-modern-input igx-ed-body" rows="2" placeholder="slender, long legs…">${esc(member.body)}</textarea></label>
+            <div class="igx-inline">
+                <div class="igx-note">This look isn't sorted by body part yet. It is sorted before the next image, or now with this button. The tags stay the same.</div>
+                <button type="button" class="menu_button igx-btn igx-ed-sort" title="Splits the look into Whole body, Head and face, Chest and arms, Hips and legs, and Feet"><i class="fa-solid fa-layer-group"></i> Sort by body part</button>
+            </div>`}
             ${cfg.style === "natural" ? `
             <label class="igx-field"><div class="igx-field-label">Description <small>The look in plain sentences, for the Plain sentences style</small></div>
                 <textarea class="ps-modern-input igx-ed-natural" rows="2" placeholder="a slender young woman with long blue hair">${esc(stored ? stored.natural : "")}</textarea></label>` : ""}
+            ${qwen && member.look ? `
+            <label class="igx-field"><div class="igx-field-label">Qwen description <small>${member.lookQwenStale ? "Made from the look above before the next image" : "Made from the look above. Made again when the look changes."}</small></div>
+                <textarea class="ps-modern-input igx-ed-qwen" rows="3" placeholder="made before the next image">${esc(member.lookQwenStale ? "" : member.lookQwen)}</textarea></label>` : ""}
             <div class="igx-field"><div class="igx-field-label">Wearing now <small>From World State. It changes when the story changes it.</small></div>
                 <div class="igx-readonly">${member.outfitText || member.outfit ? esc(member.outfitText || member.outfit) : `<i>Nothing in World State yet, so the model describes it.</i>`}</div></div>
+            ${qwen && member.outfitText ? `
+            <label class="igx-field"><div class="igx-field-label">Qwen outfit <small>${member.outfitQwenStale ? "Made from the outfit above before the next image" : "Made from the outfit above. Made again when the story changes it."}</small></div>
+                <textarea class="ps-modern-input igx-ed-qwen-outfit" rows="2" placeholder="made before the next image">${esc(member.outfitQwenStale ? "" : member.outfit)}</textarea></label>` : ""}
             ${detailed && member.outfitText ? `
             <div class="igx-field"><div class="igx-field-label">Outfit tags <small>${member.outfitStale ? "Remade before the next image" : "Made from the outfit above"}</small></div>
                 <div class="igx-inline">
-                    <input type="text" class="ps-modern-input igx-ed-outfit" value="${esc(member.outfitStale ? "" : member.outfit)}" placeholder="made before the next image" />
+                    ${outfitRegions
+                        ? `<div class="igx-stack">${OUTFIT_REGIONS.map(r => `<label class="igx-inline"><small>${OUTFIT_FIELDS[r]}</small><input type="text" class="ps-modern-input igx-ed-outfit-region" data-region="${r}" value="${esc(outfitRegions[r] || "")}" /></label>`).join("")}</div>`
+                        : `<input type="text" class="ps-modern-input igx-ed-outfit" value="${esc(member.outfitStale ? "" : member.outfit)}" placeholder="made before the next image" />`}
                     <button type="button" class="menu_button igx-btn igx-ed-outfit-lock ${outfitLocked ? "on" : ""}" title="${outfitLocked ? "Kept even when the story changes the outfit. Click to unlock." : "Keep these tags even when the story changes the outfit"}"><i class="fa-solid ${outfitLocked ? "fa-lock" : "fa-lock-open"}"></i></button>
                 </div></div>` : ""}
             ${member.position ? `<div class="igx-field"><div class="igx-field-label">Where</div><div class="igx-readonly">${esc(member.position)}</div></div>` : ""}
@@ -165,12 +197,47 @@ async function openLookEditor(name, redraw) {
             const { look } = lookFor(member);
             look.tags = String($root.find(".igx-ed-tags").val() || "").trim();
             look.body = String($root.find(".igx-ed-body").val() || "").trim();
+            look.regions = null;
             look.source = "manual";
+            saveProfileToMemory();
+        });
+        $root.find(".igx-ed-region").on("change", () => {
+            const { look } = lookFor(member);
+            const regions = Object.fromEntries(LOOK_REGIONS.map(r => [r, String($root.find(`.igx-ed-region[data-region="${r}"]`).val() || "").trim()]));
+            const parts = regionsToParts(regions);
+            Object.assign(look, { regions, tags: parts.always, body: parts.body, source: "manual" });
+            saveProfileToMemory();
+        });
+        busy($root.find(".igx-ed-sort"), async () => {
+            const { key } = lookFor(member);
+            const n = await sortOldLooks([key]);
+            if (!n) toastr.warning("The look couldn't be sorted. Try again, or type it into the boxes yourself.", "Megumin Suite");
+        }, () => { if (!gone) draw(); });
+        $root.find(".igx-ed-outfit-region").on("change", () => {
+            const { look } = lookFor(member);
+            const regions = Object.fromEntries(OUTFIT_REGIONS.map(r => [r, String($root.find(`.igx-ed-outfit-region[data-region="${r}"]`).val() || "").trim()]));
+            const tags = joinRegions(regions, OUTFIT_REGIONS);
+            const locked = Boolean(look.outfitTags && look.outfitTags.locked);
+            look.outfitTags = tags ? { from: outfitHash(member.outfitText), tags, regions, locked } : null;
             saveProfileToMemory();
         });
         $root.find(".igx-ed-natural").on("change", function () {
             const { look } = lookFor(member);
             look.natural = String($(this).val() || "").trim();
+            saveProfileToMemory();
+        });
+        // Qwen descriptions edited by hand count as made from the current look
+        // and outfit: kept until those change. Emptied = made again.
+        $root.find(".igx-ed-qwen").on("change", function () {
+            const { look } = lookFor(member);
+            const text = String($(this).val() || "").trim();
+            look.qwen = text ? { from: qwenFrom(member.qwenLookSource || member.look), text } : null;
+            saveProfileToMemory();
+        });
+        $root.find(".igx-ed-qwen-outfit").on("change", function () {
+            const { look } = lookFor(member);
+            const text = String($(this).val() || "").trim().replace(/^wearing\s+/i, "");
+            look.outfitQwen = text ? { from: qwenFrom(member.qwenOutfitSource || member.outfitText), text } : null;
             saveProfileToMemory();
         });
         $root.find(".igx-ed-aliases").on("change", function () {
@@ -208,12 +275,8 @@ async function openLookEditor(name, redraw) {
             () => scanLooks({ from: "sheet", targets: [{ name: member.name, aliases: member.aliases || [] }] }),
             () => { if (!gone) draw(); });
         const $forget = $root.find(".igx-ed-forget");
-        $forget.on("click", () => {
-            if ($forget.attr("data-armed") !== "1") {
-                $forget.attr("data-armed", "1").html(`<i class="fa-solid fa-trash"></i> Click again to delete`);
-                setTimeout(() => { $forget.attr("data-armed", "0").html(`<i class="fa-solid fa-trash"></i> Delete this look`); }, 3000);
-                return;
-            }
+        $forget.on("click", async () => {
+            if (!(await confirmPopup(`Delete ${esc(member.name)}'s look?`, "Their saved look is deleted. A new one is read again when they are drawn next.", { ok: "Delete" }))) return;
             const all = getLooks();
             const key = findLookKey(all, member.name, member.aliases || []);
             if (key) delete all[key];

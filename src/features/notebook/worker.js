@@ -14,7 +14,7 @@ import { runWithChomusuke } from "../../engine/tasks.js";
 import { warnChomusuke, answerKind } from "../../engine/chomusukeNotice.js";
 import { setActiveWorldExtractRequest } from "../../core/activeRequests.js";
 import {
-    notebookViaChomusuke, notebookBeginRead, notebookReadNotes, notebookFinishRead, notebookRecordMissing, notebookAbandonRead
+    notebookViaChomusuke, notebookBeginRead, notebookReadNotes, notebookFinishRead, notebookRecordMissing, notebookAbandonRead, notebookCap
 } from "../../state/index.js";
 import { renderNotebookWorkerPrompt, renderNotebookSetupWorkerPrompt } from "../../state/modules/notebook/worker.js";
 import { exchangeText, earlierText } from "../blocks/worker.js";
@@ -53,7 +53,8 @@ export function notebookReadForReply(index, { force = false } = {}) {
                     ? renderNotebookSetupWorkerPrompt({
                         sheet: notebookSheetText(),
                         earlier: earlierText(token.index),
-                        exchange: exchangeText(token.index, token.text)
+                        exchange: exchangeText(token.index, token.text),
+                        cap: notebookCap()
                     })
                     : renderNotebookWorkerPrompt({
                         notes: notebookReadNotes(token),

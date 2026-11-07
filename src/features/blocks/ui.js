@@ -7,20 +7,22 @@
 // chat-side renderer has no need of.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { getContext, Popup, POPUP_TYPE } from "../../st.js";
+import { Popup, POPUP_TYPE } from "../../st.js";
 import { localProfile } from "../../core/state.js";
-import { saveProfileToMemory, saveProfileDebounced } from "../../core/profile.js";
+import { saveProfileToMemory, saveProfileDebounced, deleteCustomBlockEverywhere } from "../../core/profile.js";
 import { escapeHtmlAttr } from "../../utils/html.js";
 import { buildBlocksCard, extractBlocks } from "../../blocks/render.js";
 import { buildBaseDict } from "../../engine/buildBaseDict.js";
 import {
     MEGUMIN_BLOCK_REGISTRY, BLOCK_VISIBILITY_CHOICES, STAT_FIELD_PACKS, STAT_FIELD_TYPES,
     meguminRenderRegistry, meguminActiveBlocks, meguminBlockById, meguminStatFields, meguminStatFieldMap,
-    normalizeBlockBody, blockTagFromName, validateCustomBlock, meguminSyncLegacyBlockIds,
+    blockTagFromName, validateCustomBlock, meguminSyncLegacyBlockIds, meguminBlockTemplateBody, meguminBuildCustomTemplate,
 } from "./registry.js";
+import { normalizeCustomBlock } from "../../state/modules/custom/model.js";
+import { chomusukeReady } from "../../state/index.js";
 import { meguminScheduleBlocksRefresh } from "./chat.js";
-import { stateStore, worldUpdateMode } from "../../state/index.js";
-import { openWorldEditor } from "../worldstate/editor.js";
+import { fireRefreshHook, REFRESH } from "../../core/refreshHooks.js";
+import { keepScroll, confirmPopup } from "../../ui/controls.js";
 import { meguminSlotByTrigger } from "../../../data/slots.js";
 import { hasSharedFragment } from "../../core/sharedFragments.js";
 
@@ -35,6 +37,11 @@ function editedFlag(b) {
 }
 
 export function renderBlocksTab(c) {
+    // An edit here redraws the tab: keep the scroll where it was (plan 020).
+    return keepScroll(() => drawBlocksTab(c));
+}
+
+function drawBlocksTab(c) {
     c.empty();
     const stack = localProfile.blockStack;
     const all = [...MEGUMIN_BLOCK_REGISTRY, ...(stack.custom || [])].filter(b => !b.system);
@@ -52,7 +59,7 @@ export function renderBlocksTab(c) {
                     <p>Everything in this list is sent as one master block at the end of the reply, and drawn in the chat as one collapsible card.</p>
                 </div>
             </div>
-            <div class="mtab-header-badge" style="background: rgba(245,158,11,0.12); color:#f59e0b; border:1px solid rgba(245,158,11,0.25);">
+            <div class="mtab-header-badge" style="background: rgba(245,158,11,0.12); color:var(--c-brand, #f59e0b); border:1px solid rgba(245,158,11,0.25);">
                 <i class="fa-solid fa-layer-group" style="font-size:0.6rem;"></i> ${inStack.length} in block
             </div>
         </div>
@@ -99,7 +106,7 @@ export function renderBlocksTab(c) {
                         ${BLOCK_VISIBILITY_CHOICES.map(o => `<option value="${o.v}" ${(visOf(b) === "hidden" ? "hidden" : "open") === o.v ? "selected" : ""} title="${o.hint}">${o.label}</option>`).join("")}
                     </select>
                     ${b.builtin ? "" : `<button class="ws-btn-small blk-edit" style="color:var(--gold);"><i class="fa-solid fa-pen"></i></button>`}
-                    <button class="ws-btn-small blk-remove" style="color:#ef4444;"><i class="fa-solid fa-xmark"></i></button>
+                    <button class="ws-btn-small blk-remove" style="color:var(--c-danger, #ef4444);" title="${b.builtin ? "Take this block out" : "Take this block out for this character. It stays under Add a block for every character."}"><i class="fa-solid fa-xmark"></i></button>
                 </div>
             </div>
         `);
@@ -126,73 +133,16 @@ export function renderBlocksTab(c) {
         row.find(".blk-edit").on("click", () => renderCustomBlockEditor(c, b.id));
         list.append(row);
 
-        // World State settings ride under its own row: they mean nothing apart
-        // from this block. The state itself lives in the chat file; these are
-        // only how it is kept and how much of it the model reads.
+        // World State's settings live in its own tab (plan 020): here it is
+        // only ordered and shown or hidden, like every other block.
         if (b.id === "world") {
-            const ws = localProfile.worldState;
-            const hasChat = Boolean(getContext()?.chatId);
-            const pending = stateStore.isPendingFullRewrite("world");
             const sub = $(`
                 <div class="blk-sub blk-ws">
-                    <div class="blk-ws-grid">
-                        <label class="blk-ws-field">
-                            <span class="blk-sub-label">Updates</span>
-                            <select id="blk_ws_mode" class="ps-modern-input">
-                                <option value="inline" ${ws.updateMode !== "manual" ? "selected" : ""}>Automatic</option>
-                                <option value="manual" ${ws.updateMode === "manual" ? "selected" : ""}>Manual</option>
-                            </select>
-                            <span class="blk-sub-desc">${worldUpdateMode() === "sidemodel"
-                                ? "Automatic: Chomusuke reads each reply (set in the Chomusuke tab)."
-                                : "Automatic: each reply records what it changed. Chomusuke can take this over in its tab."} Manual: only read.</span>
-                        </label>
-                        <label class="blk-ws-field">
-                            <span class="blk-sub-label">Detail sent</span>
-                            <select id="blk_ws_detail" class="ps-modern-input">
-                                <option value="full" ${ws.injectionDetail === "full" ? "selected" : ""}>Full</option>
-                                <option value="scene" ${ws.injectionDetail === "scene" ? "selected" : ""}>Scene only</option>
-                            </select>
-                            <span class="blk-sub-desc">Scene only skips mood, agenda, secrets and threads to save tokens.</span>
-                        </label>
-                    </div>
-                    <div class="blk-ws-chips">
-                        <label class="blk-ws-chip" title="Show what each reply changed at the top of its World State card">
-                            <input type="checkbox" id="blk_ws_changes" ${ws.showChanges !== false ? "checked" : ""}/> Show what changed on cards
-                        </label>
-                        <label class="blk-ws-chip" title="When an absent character is mentioned again, remind the model how they last were">
-                            <input type="checkbox" id="blk_ws_returning" ${ws.showReturning !== false ? "checked" : ""}/> Remind the model of returning characters
-                        </label>
-                    </div>
-                    <div class="blk-ws-actions">
-                        <button id="blk_ws_editor" class="menu_button" ${hasChat ? "" : "disabled"} title="Edit this chat's World State and its history"><i class="fa-solid fa-pen"></i> Editor</button>
-                        <button id="blk_ws_rewrite" class="menu_button ${pending ? "is-on" : ""}" ${hasChat ? "" : "disabled"} title="Ask the next reply to write the whole state again"><i class="fa-solid ${pending ? "fa-check" : "fa-arrows-rotate"}"></i> ${pending ? "Rewrite queued" : "Rewrite next"}</button>
-                        <button id="blk_ws_reset" class="menu_button" ${hasChat ? "" : "disabled"} title="Clear this chat's World State"><i class="fa-solid fa-eraser"></i> Reset</button>
-                    </div>
+                    <button type="button" class="menu_button blk-ws-open"><i class="fa-solid fa-thumbtack"></i> World State settings <i class="fa-solid fa-arrow-right"></i></button>
+                    <span class="blk-sub-desc">Who writes the updates, how much the model reads, and this chat's Editor.</span>
                 </div>
             `);
-            sub.find("#blk_ws_mode").on("change", function () {
-                ws.updateMode = $(this).val(); saveProfileToMemory(); renderBlocksTab(c); meguminScheduleBlocksRefresh();
-            });
-            sub.find("#blk_ws_detail").on("change", function () {
-                ws.injectionDetail = $(this).val(); saveProfileToMemory();
-            });
-            sub.find("#blk_ws_changes").on("change", function () {
-                ws.showChanges = this.checked; saveProfileToMemory(); meguminScheduleBlocksRefresh();
-            });
-            sub.find("#blk_ws_returning").on("change", function () {
-                ws.showReturning = this.checked; saveProfileToMemory();
-            });
-            sub.find("#blk_ws_editor").on("click", () => openWorldEditor());
-            sub.find("#blk_ws_rewrite").on("click", () => {
-                stateStore.setPendingFullRewrite("world", !stateStore.isPendingFullRewrite("world"));
-                renderBlocksTab(c);
-            });
-            sub.find("#blk_ws_reset").on("click", () => {
-                if (!confirm("Clear this chat's World State? The next reply will describe the scene from scratch.")) return;
-                stateStore.reset("world");
-                meguminScheduleBlocksRefresh();
-                toastr.info("World State cleared for this chat.", "Megumin Suite");
-            });
+            sub.find(".blk-ws-open").on("click", () => fireRefreshHook(REFRESH.SWITCH_TAB, "world"));
             list.append(sub);
         }
 
@@ -251,7 +201,7 @@ export function renderStatFieldEditor(c, def) {
                 <input type="number" class="ps-modern-input sf-max" value="${f.max || 100}" title="Maximum" style="display:${f.type === "meter" ? "" : "none"};" />
                 <input type="number" class="ps-modern-input sf-start" value="${f.start !== undefined ? f.start : 0}" title="Starting value" style="display:${f.type === "meter" || f.type === "number" ? "" : "none"};" />
                 <button class="ws-btn-small sf-up" ${i === 0 ? "disabled" : ""}><i class="fa-solid fa-arrow-up"></i></button>
-                <button class="ws-btn-small sf-del" style="color:#ef4444;"><i class="fa-solid fa-xmark"></i></button>
+                <button class="ws-btn-small sf-del" style="color:var(--c-danger, #ef4444);"><i class="fa-solid fa-xmark"></i></button>
             </div>
         `);
         row.find(".sf-label").on("input", function () { f.label = $(this).val(); saveProfileDebounced(); });
@@ -322,13 +272,7 @@ export function renderBlocksPreview(host) {
 
     const sample = "<Blocks>\n" + active.map(b => {
         // Same three sources the envelope uses, so the preview cannot drift.
-        let raw;
-        if (b.slot) raw = "[Only appears when the story introduces a new NPC.]";
-        else if (typeof b.build === "function") raw = b.build();
-        else if (b.source) raw = dict[b.source] || "";
-        else raw = b.content || "";
-        const body = b.slot ? raw : normalizeBlockBody(
-            String(raw).replace(/^#{1,3}\s*At the end of your response[^\n]*\n?/i, ""), b.tag);
+        const body = b.slot ? "[Only appears when the story introduces a new NPC.]" : meguminBlockTemplateBody(b, dict);
         return body ? `<${b.tag}>\n${body}\n</${b.tag}>` : "";
     }).filter(Boolean).join("\n") + "\n</Blocks>";
 
@@ -346,12 +290,47 @@ export function renderBlocksPreview(host) {
     host.appendChild(note);
 }
 
+// One-of-many as icon tiles (the World State tab's style). A disabled tile
+// says why in its own line.
+function choiceTiles(options, current, onPick) {
+    const $t = $(`<div class="igx-tiles wsx-choice"></div>`);
+    for (const o of options) {
+        const $b = $(`<button type="button" class="igx-tile ${o.id === current ? "on" : ""}" ${o.disabled ? "disabled" : ""}>
+            <b><i class="fa-solid ${o.icon}"></i> ${escapeHtmlAttr(o.label)}</b><span>${escapeHtmlAttr(o.disabled || o.desc)}</span>
+        </button>`);
+        $b.on("click", () => {
+            if (o.disabled || $b.hasClass("on")) return;
+            $t.children().removeClass("on");
+            $b.addClass("on");
+            onPick(o.id);
+        });
+        $t.append($b);
+    }
+    return $t;
+}
+
+// The grey example in a field's description box, by type.
+const FIELD_DESC_EXAMPLE = {
+    meter: "What it means and how it moves, e.g. How much she trusts {{user}}. Goes up when he keeps his word, down when he lies or hides things.",
+    number: "What it counts and when it changes, e.g. Coins in {{user}}'s purse. Changes only when money changes hands.",
+    text: "What to write here, e.g. Her mood in a few words, as the scene leaves her.",
+    list: "What goes in the list, e.g. What {{user}} carries. Add or remove only when the story does."
+};
+
+const sectionHead = (label, desc) => `<div style="padding: 14px 0 6px;">
+    <div class="set-label" style="margin-bottom:4px;">${label}</div>
+    ${desc ? `<div class="set-desc">${desc}</div>` : ""}
+</div>`;
+
+// Plan 023: a custom block is a name and a look, what it holds (fields or
+// free text), what the story remembers of it, and when it is written.
 export function renderCustomBlockEditor(c, editId) {
     const stack = localProfile.blockStack;
     const existing = editId ? (stack.custom || []).find(b => b.id === editId) : null;
     const draft = existing
-        ? { ...existing }
-        : { id: "blk_" + Date.now(), label: "", tag: "", emoji: "📦", visibility: "collapsed", builtin: false, content: "" };
+        ? normalizeCustomBlock(structuredClone(existing))
+        : normalizeCustomBlock({ id: "blk_" + Date.now(), label: "", tag: "", emoji: "📦", visibility: "open", builtin: false, content: "" });
+    if (draft.visibility !== "hidden") draft.visibility = "open";
 
     c.empty();
     c.append(`
@@ -360,7 +339,7 @@ export function renderCustomBlockEditor(c, editId) {
                 <div class="mtab-header-icon" style="background: linear-gradient(135deg, #10b981, #047857);"><i class="fa-solid fa-wand-magic-sparkles"></i></div>
                 <div>
                     <h2>${existing ? "Edit" : "New"} block</h2>
-                    <p>Give it a name, an emoji and the template the AI fills in.</p>
+                    <p>Give it a name, choose what it holds, and how the story keeps it. Your custom blocks are shared: every character can add them from Add a block, and a change here applies to all of them.</p>
                 </div>
             </div>
         </div>
@@ -370,58 +349,218 @@ export function renderCustomBlockEditor(c, editId) {
         <div class="mtab-panel">
             <div class="mtab-setting-row">
                 <div class="set-info"><div class="set-label">Name</div><div class="set-desc">Shown as the header in chat</div></div>
-                <input type="text" id="blk_name" class="ps-modern-input" style="width:220px;" placeholder="e.g. Relationship Meter" value="${escapeHtmlAttr(draft.label)}" />
+                <input type="text" id="blk_name" class="ps-modern-input" style="width:220px;" placeholder="e.g. Relationship Meter" value="${escapeHtmlAttr(draft.label || "")}" />
             </div>
             <div class="mtab-setting-row">
                 <div class="set-info"><div class="set-label">Emoji</div><div class="set-desc">Sits before the header</div></div>
-                <input type="text" id="blk_emoji" class="ps-modern-input" style="width:70px; text-align:center;" value="${escapeHtmlAttr(draft.emoji)}" />
+                <input type="text" id="blk_emoji" class="ps-modern-input" style="width:70px; text-align:center;" value="${escapeHtmlAttr(draft.emoji || "📦")}" />
             </div>
             <div class="mtab-setting-row">
-                <div class="set-info"><div class="set-label">Shown as</div><div class="set-desc">Hidden blocks are still sent and still read by the side panel</div></div>
+                <div class="set-info"><div class="set-label">Shown as</div><div class="set-desc">Hidden blocks are still written and still kept</div></div>
                 <select id="blk_vis" class="ps-modern-input" style="width:150px;">
                     ${BLOCK_VISIBILITY_CHOICES.map(o => `<option value="${o.v}" ${draft.visibility === o.v ? "selected" : ""}>${o.label}</option>`).join("")}
                 </select>
             </div>
-            <div style="padding: 12px 0;">
-                <div class="set-label" style="margin-bottom:6px;">Template</div>
-                <div class="set-desc" style="margin-bottom:8px;">What the AI is told to write. Square brackets read as fill-me-in.</div>
-                <textarea id="blk_content" class="ps-modern-input" rows="8" style="width:100%; resize:vertical;" placeholder="e.g.&#10;**Trust:** [0-100] | **Tension:** [0-100]&#10;**Last shift:** [what moved it this scene]">${escapeHtmlAttr(draft.content)}</textarea>
-            </div>
             <div style="font-size:0.68rem; color:var(--text-muted);">Tag: <code id="blk_tag_preview">&lt;${escapeHtmlAttr(draft.tag || "…")}&gt;</code></div>
+            <div class="blk-ed-holds"></div>
+            <div class="blk-ed-body"></div>
+            <div class="blk-ed-writer"></div>
+            <div class="blk-ed-memory"></div>
+            <div class="blk-ed-when"></div>
+            <div class="blk-ed-preview"></div>
         </div>
     `);
     c.append(form);
 
-    const syncTag = () => {
-        const t = blockTagFromName($("#blk_name").val());
-        $("#blk_tag_preview").text(`<${t || "…"}>`);
-        return t;
+    // What the story is told for this block, as it stands in the form.
+    const drawPreview = () => {
+        const host = form.find(".blk-ed-preview").empty();
+        const label = String($("#blk_name").val() || "").trim() || "Block";
+        const tag = blockTagFromName(label) || "Block";
+        let body = "";
+        try { body = meguminBuildCustomTemplate({ ...draft, label, tag }); } catch (e) { body = ""; }
+        host.append(sectionHead("What the story is told", "The template sent for this block, updated as you type. Square brackets are filled in by the story."));
+        const $pre = $(`<pre class="ps-modern-input" style="white-space:pre-wrap; font-size:0.72rem; line-height:1.45; max-height:260px; overflow:auto; margin:0;"></pre>`);
+        $pre.text(body ? `<${tag}>\n${body}\n</${tag}>` : "Add a field or write a template to see it here.");
+        host.append($pre);
     };
-    form.find("#blk_name").on("input", syncTag);
+    // Every box updates the draft in its own handler first, then this runs.
+    form.on("input change", () => drawPreview());
+
+    form.find("#blk_name").on("input", function () {
+        $("#blk_tag_preview").text(`<${blockTagFromName($(this).val()) || "…"}>`);
+    });
+
+    // What it holds.
+    const drawHolds = () => {
+        const host = form.find(".blk-ed-holds").empty();
+        host.append(sectionHead("What it holds"));
+        host.append(choiceTiles([
+            { id: "fields", icon: "fa-sliders", label: "Fields", desc: "Named values like Trust or Gold. Meters are drawn as bars, lists as chips." },
+            { id: "text", icon: "fa-align-left", label: "Free text", desc: "Your own template, sent as you wrote it." }
+        ], draft.kind, v => { draft.kind = v; drawBody(); }));
+    };
+
+    // The fields, or the template.
+    const drawBody = () => {
+        const host = form.find(".blk-ed-body").empty();
+        if (draft.kind === "text") {
+            host.append(sectionHead("Template", "What the story is told to write. Square brackets read as fill-me-in."));
+            const $ta = $(`<textarea class="ps-modern-input" rows="8" style="width:100%; resize:vertical;" placeholder="e.g.&#10;Goal: [what the party wants now]&#10;Next step: [what they do about it]"></textarea>`);
+            $ta.val(draft.content || "");
+            $ta.on("input", function () { draft.content = $(this).val(); });
+            host.append($ta);
+            drawPreview();
+            return;
+        }
+        // Rules for the whole block, in the user's words (sent before the fields' own notes).
+        host.append(sectionHead("Rules for this block", "How the story should write this block as a whole. Each line is sent as you wrote it."));
+        const $rules = $(`<textarea class="ps-modern-input blk-rules" rows="3" style="width:100%; resize:vertical; font-size:0.75rem;"
+            placeholder="e.g.&#10;Track only the party, never strangers.&#10;Numbers change slowly: a single scene rarely moves one by more than 5."></textarea>`);
+        $rules.val(draft.rules || "");
+        $rules.on("input", function () { draft.rules = $(this).val(); });
+        host.append($rules);
+        host.append(sectionHead("Fields", "What the story keeps in this block. Say what each field means and how it changes: the story reads it. Every field costs tokens on every reply."));
+        const rows = $(`<div class="stat-field-list"></div>`);
+        draft.fields.forEach((f, i) => {
+            const item = $(`<div class="blk-field-item" style="margin-bottom:10px;"></div>`);
+            const row = $(`
+                <div class="stat-field">
+                    <input type="text" class="ps-modern-input sf-label" value="${escapeHtmlAttr(f.label)}" placeholder="Name" />
+                    <select class="ps-modern-input sf-type">
+                        ${STAT_FIELD_TYPES.map(t => `<option value="${t.v}" ${f.type === t.v ? "selected" : ""} title="${t.hint}">${t.label}</option>`).join("")}
+                    </select>
+                    <input type="number" class="ps-modern-input sf-max" value="${f.max || 100}" title="Maximum" style="display:${f.type === "meter" ? "" : "none"};" />
+                    <input type="number" class="ps-modern-input sf-start" value="${f.start !== undefined ? f.start : 0}" title="Starting value" style="display:${f.type === "meter" || f.type === "number" ? "" : "none"};" />
+                    <button class="ws-btn-small sf-up" title="Move up" ${i === 0 ? "disabled" : ""}><i class="fa-solid fa-arrow-up"></i></button>
+                    <button class="ws-btn-small sf-del" title="Remove this field" style="color:var(--c-danger, #ef4444);"><i class="fa-solid fa-xmark"></i></button>
+                </div>
+            `);
+            row.find(".sf-label").on("input", function () { f.label = $(this).val(); });
+            row.find(".sf-type").on("change", function () { f.type = $(this).val(); f.ownLine = f.type === "list"; drawBody(); });
+            row.find(".sf-max").on("input", function () { f.max = parseInt($(this).val(), 10) || 100; });
+            row.find(".sf-start").on("input", function () { f.start = parseInt($(this).val(), 10) || 0; });
+            row.find(".sf-up").on("click", () => { draft.fields.splice(i - 1, 0, draft.fields.splice(i, 1)[0]); drawBody(); });
+            row.find(".sf-del").on("click", () => { draft.fields.splice(i, 1); drawBody(); });
+            // What the field means and how it changes, in the user's words.
+            const $desc = $(`<textarea class="ps-modern-input sf-desc" rows="2" style="width:100%; resize:vertical; margin-top:4px; font-size:0.75rem;"
+                placeholder="${escapeHtmlAttr(FIELD_DESC_EXAMPLE[f.type] || FIELD_DESC_EXAMPLE.text)}"></textarea>`);
+            $desc.val(f.desc || "");
+            $desc.on("input", function () { f.desc = $(this).val(); });
+            item.append(row).append($desc);
+            rows.append(item);
+        });
+        if (!draft.fields.length) rows.append(`<div class="blk-empty">No fields yet.</div>`);
+        host.append(rows);
+        const add = $(`<button class="blk-add" style="margin-top:8px;"><i class="fa-solid fa-plus"></i> Add field</button>`);
+        add.on("click", () => {
+            draft.fields.push({ id: "f_" + Date.now(), label: "New field", type: "meter", max: 100, start: 0, desc: "" });
+            drawBody();
+        });
+        host.append(add);
+        drawPreview();
+    };
+
+    // Who writes it (plan 023 phase 3).
+    const drawWriter = () => {
+        const host = form.find(".blk-ed-writer").empty();
+        host.append(sectionHead("Who writes it"));
+        host.append(choiceTiles([
+            { id: "story", icon: "fa-feather", label: "The story", desc: "The story model writes it at the end of its reply." },
+            { id: "chomusuke", icon: "fa-cat", label: "Chomusuke", desc: "Chomusuke reads each reply and writes it after, so the story model only writes the story." }
+        ], draft.writer, v => { draft.writer = v; drawWriter(); }));
+        if (draft.writer === "chomusuke" && !chomusukeReady()) {
+            host.append(`<div class="set-desc" style="margin-top:8px; color:var(--c-brand, #f59e0b);"><i class="fa-solid fa-triangle-exclamation"></i> Chomusuke is off or has no connection, so this block won't be written until you set it up in the Chomusuke tab.</div>`);
+        }
+        drawPreview();
+    };
+
+    // What the story remembers of it.
+    const drawMemory = () => {
+        const host = form.find(".blk-ed-memory").empty();
+        host.append(sectionHead("What the story remembers of it", "Works the same with \"Hide old blocks from the AI\" on or off."));
+        host.append(choiceTiles([
+            { id: "fresh", icon: "fa-seedling", label: "Starts fresh", desc: "The story doesn't see the last one, so it writes this block new each time." },
+            { id: "chat", icon: "fa-comments", label: "Stays in the chat", desc: "The story reads its old copies in earlier replies, even while other blocks are hidden. Costs tokens on every old reply." },
+            { id: "info", icon: "fa-thumbtack", label: "Last one in Current Info", desc: "The story reads only the latest one, once, before it writes. A field the reply leaves out keeps its value." }
+        ], draft.memory, v => {
+            draft.memory = v;
+            if (v === "fresh" && draft.when === "changes") draft.when = "every";
+            drawWhen();
+        }));
+        drawPreview();
+    };
+
+    // When it is written.
+    const drawWhen = () => {
+        const host = form.find(".blk-ed-when").empty();
+        host.append(sectionHead("When the story writes it"));
+        host.append(choiceTiles([
+            { id: "every", icon: "fa-rotate", label: "Every reply", desc: "Written at the end of each reply." },
+            { id: "changes", icon: "fa-pen-to-square", label: "Only when it changes", desc: "The story leaves it out when nothing in it changed.",
+              disabled: draft.memory === "fresh" ? "Needs the story to see the block. Pick \"Stays in the chat\" or \"Last one in Current Info\" above." : "" },
+            { id: "everyN", icon: "fa-forward", label: "Every few replies", desc: "Written once every few replies. Set how many below." }
+        ], draft.when, v => { draft.when = v; drawWhen(); }));
+        if (draft.when === "everyN") {
+            const $n = $(`<div class="mtab-setting-row">
+                <div class="set-info"><div class="set-label">How many replies</div><div class="set-desc">From 2 to 20</div></div>
+                <input type="number" min="2" max="20" class="ps-modern-input" style="width:80px;" value="${draft.everyN}" />
+            </div>`);
+            $n.find("input").on("input", function () { draft.everyN = normalizeCustomBlock({ when: "everyN", everyN: $(this).val() }).everyN; });
+            host.append($n);
+        }
+        drawPreview();
+    };
+
+    drawHolds(); drawBody(); drawWriter(); drawMemory(); drawWhen();
 
     const actions = $(`
         <div style="display:flex; gap:10px; margin-top:16px;">
-            <button class="ws-btn-small" id="blk_save" style="color:#10b981; border-color:rgba(16,185,129,0.4);"><i class="fa-solid fa-check"></i> Save</button>
+            <button class="ws-btn-small" id="blk_save" style="color:var(--c-live, #10b981); border-color:rgba(16,185,129,0.4);"><i class="fa-solid fa-check"></i> Save</button>
             <button class="ws-btn-small" id="blk_cancel"><i class="fa-solid fa-xmark"></i> Cancel</button>
+            ${existing ? `<button class="ws-btn-small" id="blk_delete" style="margin-left:auto; color:var(--c-danger, #ef4444); border-color:rgba(239,68,68,0.35);" title="Delete this block for every character"><i class="fa-solid fa-trash"></i> Delete block</button>` : ""}
         </div>
     `);
     actions.find("#blk_cancel").on("click", () => renderBlocksTab(c));
+    // Custom blocks are shared by every character (plan 023), so this is for all of them.
+    actions.find("#blk_delete").on("click", async () => {
+        const name = escapeHtmlAttr(existing.label || existing.tag);
+        if (!(await confirmPopup(`Delete "${name}"?`,
+            "It is deleted for every character and taken out of every character's blocks. What your chats already kept of it stays in them, but nothing shows or sends it any more.",
+            { ok: "Delete" }))) return;
+        deleteCustomBlockEverywhere(existing.id);
+        meguminScheduleBlocksRefresh();
+        toastr.success(`"${existing.label || existing.tag}" deleted.`);
+        renderBlocksTab(c);
+    });
     actions.find("#blk_save").on("click", () => {
         const label = String($("#blk_name").val() || "").trim();
         const tag = blockTagFromName(label);
         const problem = validateCustomBlock(label, tag, draft.id);
         if (problem) { toastr.warning(problem); return; }
+        if (draft.kind === "fields" && !draft.fields.some(f => String(f.label || "").trim())) {
+            toastr.warning("Add at least one field, or pick Free text.");
+            return;
+        }
 
-        const entry = {
-            id: draft.id, label, tag,
+        // A renamed block keeps reading its old copies under the old tag.
+        const tags = [...(draft.tags || [])];
+        if (existing && existing.tag && existing.tag !== tag && !tags.includes(existing.tag)) tags.push(existing.tag);
+
+        const entry = normalizeCustomBlock({
+            ...draft,
+            label, tag,
+            tags: tags.filter(t => t !== tag),
             emoji: String($("#blk_emoji").val() || "📦").trim() || "📦",
             icon: "fa-cube", color: "#38bdf8",
             visibility: $("#blk_vis").val(),
             builtin: false,
-            content: String($("#blk_content").val() || "").trim(),
+            content: String(draft.content || "").trim(),
+            rules: String(draft.rules || "").trim(),
+            fields: draft.fields.filter(f => String(f.label || "").trim()).map(f => ({ ...f, label: String(f.label).trim() })),
             // Custom blocks carry their own body rather than reading a dict tag.
             source: null
-        };
+        });
 
         if (!stack.custom) stack.custom = [];
         const at = stack.custom.findIndex(b => b.id === entry.id);

@@ -25,6 +25,8 @@ import { registerRefreshHook, REFRESH } from "../../core/refreshHooks.js";
 import { setActiveMemorySummarizationRequest } from "../../core/activeRequests.js";
 import { DEFAULT_PROMPTS } from "../../prompts/index.js";
 import { renderPromptEditor } from "../../ui/promptEditor.js";
+import { confirmPopup, choosePopup } from "../../ui/controls.js";
+import { chomusukeJobLine } from "../../ui/chomusukeLine.js";
 import { downloadJsonFile } from "../../utils/download.js";
 import { meguminCleanChatHistoryText } from "../../engine/chatText.js";
 import { runWithChomusuke } from "../../engine/tasks.js";
@@ -73,7 +75,7 @@ export function renderMemoryCore(c) {
         <!-- MASTER TOGGLE -->
         <div class="mtab-toggle-row ${mem.enabled ? 'active' : ''}" id="mem_enable_card" style="margin-bottom: 20px;">
             <div class="toggle-info">
-                <div class="toggle-label"><i class="fa-solid fa-microchip" style="color:#10b981;"></i> Turn on Memory</div>
+                <div class="toggle-label"><i class="fa-solid fa-microchip" style="color:var(--c-live, #10b981);"></i> Turn on Memory</div>
                 <div class="toggle-desc">Archiving happens silently in the background. Old messages fade in the UI and are replaced in the prompt with injected summaries.</div>
             </div>
             <div class="ps-switch"></div>
@@ -87,27 +89,27 @@ export function renderMemoryCore(c) {
                     <div class="mtab-panel-title green" style="margin:0; display: flex; align-items: center; gap: 8px;">
                         <i class="fa-solid fa-chart-gantt"></i> Context Allocation Dashboard
                         <input type="file" id="mem_file_import" accept=".json" style="display: none;">
-                        <button id="mem_btn_import" class="ps-modern-btn secondary" style="padding: 2px 6px; font-size: 0.65rem; color: #10b981; border-color: rgba(16, 185, 129, 0.3);" title="Import Memory Core"><i class="fa-solid fa-file-import"></i></button>
-                        <button id="mem_btn_export" class="ps-modern-btn secondary" style="padding: 2px 6px; font-size: 0.65rem; color: #3b82f6; border-color: rgba(59, 130, 246, 0.3);" title="Export Memory Core"><i class="fa-solid fa-download"></i></button>
+                        <button id="mem_btn_import" class="ps-modern-btn secondary" style="padding: 2px 6px; font-size: 0.65rem; color: var(--c-live, #10b981); border-color: rgba(16, 185, 129, 0.3);" title="Import Memory Core"><i class="fa-solid fa-file-import"></i></button>
+                        <button id="mem_btn_export" class="ps-modern-btn secondary" style="padding: 2px 6px; font-size: 0.65rem; color: var(--c-info, #3b82f6); border-color: rgba(59, 130, 246, 0.3);" title="Export Memory Core"><i class="fa-solid fa-download"></i></button>
                     </div>
-                    <div style="font-size: 0.75rem; font-weight: 800; color: #10b981; background: rgba(16,185,129,0.1); padding: 4px 12px; border-radius: 12px; border: 1px solid rgba(16,185,129,0.3); box-shadow: 0 0 10px rgba(16,185,129,0.2);">
+                    <div style="font-size: 0.75rem; font-weight: 800; color: var(--c-live, #10b981); background: rgba(16,185,129,0.1); padding: 4px 12px; border-radius: 12px; border: 1px solid rgba(16,185,129,0.3); box-shadow: 0 0 10px rgba(16,185,129,0.2);">
                         <i class="fa-solid fa-floppy-disk"></i> <span id="mem_live_tokens_saved">~0</span> Tokens Saved
                     </div>
                 </div>
                 <div style="font-size: 0.75rem; color: var(--text-muted); display: flex; justify-content: space-between; margin-bottom: 5px;">
-                    <span><i class="fa-solid fa-circle" style="color: #3b82f6; font-size: 0.5rem;"></i> Vault</span>
+                    <span><i class="fa-solid fa-circle" style="color: var(--c-info, #3b82f6); font-size: 0.5rem;"></i> Vault</span>
                     <span id="mem_dash_short_lbl" style="display:${mem.architecture === 'raw_long' ? 'none' : 'inline'};">
-                        <i class="fa-solid fa-circle" style="color: #f59e0b; font-size: 0.5rem;"></i> Short-Term
+                        <i class="fa-solid fa-circle" style="color: var(--c-brand, #f59e0b); font-size: 0.5rem;"></i> Short-Term
                     </span>
                     <span><i class="fa-solid fa-circle-half-stroke" style="color: #047857; font-size: 0.5rem;"></i> Pending</span>
-                    <span><i class="fa-solid fa-circle" style="color: #10b981; font-size: 0.5rem;"></i> Working</span>
+                    <span><i class="fa-solid fa-circle" style="color: var(--c-live, #10b981); font-size: 0.5rem;"></i> Working</span>
                 </div>
                 <div class="mem-progress-container" style="background: rgba(0,0,0,0.6); display: flex;">
                     <!-- Oldest on Left -->
-                    <div id="mem_bar_long" style="background: #3b82f6; transition: width 0.2s ease;" title="Vaulted (Archived)"></div>
-                    <div id="mem_bar_short" style="background: #f59e0b; transition: width 0.2s ease;" title="Short-Term (Summaries)"></div>
-                    <div id="mem_bar_pend" style="background: repeating-linear-gradient(45deg, #047857, #047857 10px, #10b981 10px, #10b981 20px); transition: width 0.2s ease;" title="Pending (Active Raw)"></div>
-                    <div id="mem_bar_work" style="background: #10b981; transition: width 0.2s ease;" title="Working (Active Raw)"></div>
+                    <div id="mem_bar_long" style="background: var(--c-info, #3b82f6); transition: width 0.2s ease;" title="Vaulted (Archived)"></div>
+                    <div id="mem_bar_short" style="background: var(--c-brand, #f59e0b); transition: width 0.2s ease;" title="Short-Term (Summaries)"></div>
+                    <div id="mem_bar_pend" style="background: repeating-linear-gradient(45deg, #047857, #047857 10px, var(--c-live, #10b981) 10px, #10b981 20px); transition: width 0.2s ease;" title="Pending (Active Raw)"></div>
+                    <div id="mem_bar_work" style="background: var(--c-live, #10b981); transition: width 0.2s ease;" title="Working (Active Raw)"></div>
                     <!-- Newest on Right -->
                 </div>
                 <div style="display: flex; justify-content: space-between; font-size: 0.65rem; color: var(--text-muted); margin-top: 4px; opacity: 0.7; font-weight: bold;">
@@ -124,8 +126,8 @@ export function renderMemoryCore(c) {
                 <div class="mtab-panel-title gold"><i class="fa-solid fa-gears"></i> Extraction Engine Settings</div>
                 
                 <!-- Quick Help / Hint -->
-                <div style="background: rgba(245,158,11,0.1); border-left: 3px solid #f59e0b; padding: 12px; border-radius: 6px; margin-bottom: 16px; font-size: 0.8rem; color: var(--text-main);">
-                    <div style="color: #f59e0b; font-weight: bold; margin-bottom: 6px;"><i class="fa-solid fa-circle-info"></i> How to Use</div>
+                <div style="background: rgba(245,158,11,0.1); border-left: 3px solid var(--c-brand, #f59e0b); padding: 12px; border-radius: 6px; margin-bottom: 16px; font-size: 0.8rem; color: var(--text-main);">
+                    <div style="color: var(--c-brand, #f59e0b); font-weight: bold; margin-bottom: 6px;"><i class="fa-solid fa-circle-info"></i> How to Use</div>
                     <div style="color: var(--text-muted); line-height: 1.4;">
                         1- Choose your Memory Architecture and how much of each type you want (default is 30 raw, 70 summary).<br>
                         2- Hit <b>Apply & Extract Pending</b> to save and start it.<br>
@@ -177,18 +179,13 @@ export function renderMemoryCore(c) {
                     
                     <!-- NEW APPLY BUTTON -->
                     <div style="margin-top: 15px; display: flex; justify-content: flex-end; border-top: 1px dashed var(--border-color); padding-top: 15px;">
-                        <button id="mem_btn_apply_limits" class="ps-modern-btn secondary" style="color: #10b981; border-color: rgba(16,185,129,0.3); font-size: 0.75rem; padding: 6px 14px;">
+                        <button id="mem_btn_apply_limits" class="ps-modern-btn secondary" style="color: var(--c-live, #10b981); border-color: rgba(16,185,129,0.3); font-size: 0.75rem; padding: 6px 14px;">
                             <i class="fa-solid fa-arrows-rotate"></i> Apply & Extract Pending
                         </button>
                     </div>
                 </div>
 
-                <div class="mtab-setting-row" style="border-top: 1px solid rgba(255,255,255,0.04); padding-top: 14px;">
-                    <div class="set-info">
-                        <div class="set-label"><i class="fa-solid fa-cat" style="color: #f43f5e; margin-right: 6px;"></i> Background Worker</div>
-                        <div class="set-desc">Managed by the <b>Chomusuke</b> tab. Configure Chomusuke to offload memory chunk summarization to a dedicated worker LLM.</div>
-                    </div>
-                </div>
+                ${chomusukeJobLine("memory", "the memory summaries")}
                 <div class="mtab-setting-row" style="border-top: 1px solid rgba(255,255,255,0.04); padding-top: 14px;">
                     <div class="set-info">
                         <div class="set-label">Vault Scanner Engine</div>
@@ -229,7 +226,7 @@ export function renderMemoryCore(c) {
                         <span id="mem_processing_spinner" style="display:none; margin-left: 10px;" class="mem-spinner"><i class="fa-solid fa-circle-notch"></i></span>
                         <span id="mem_processing_progress" style="display:none; margin-left: 8px; font-size: 0.72rem; color: var(--text-muted); font-weight: normal; vertical-align: middle;"></span>
                     </div>
-                    <button id="mem_btn_clear_short" class="ps-modern-btn secondary" style="padding: 4px 10px; font-size: 0.72rem; color: #ef4444; border-color: rgba(239, 68, 68, 0.3);"><i class="fa-solid fa-trash-can"></i> Clear All</button>
+                    <button id="mem_btn_clear_short" class="ps-modern-btn secondary" style="padding: 4px 10px; font-size: 0.72rem; color: var(--c-danger, #ef4444); border-color: rgba(239, 68, 68, 0.3);"><i class="fa-solid fa-trash-can"></i> Clear All</button>
                 </div>
                 
                 <div id="mem_short_term_list">
@@ -245,8 +242,8 @@ export function renderMemoryCore(c) {
                 </div>
                 <div style="display: flex; gap: 10px; margin-bottom: 10px;">
                     <input type="text" id="mem_vault_search" class="ps-modern-input" placeholder="Search archived memories..." style="flex: 1; border-color: rgba(59,130,246,0.3);">
-                    <button id="mem_btn_test_vector" class="ps-modern-btn secondary" style="color: #3b82f6; border-color: rgba(59,130,246,0.3);" title="See what memories the AI is retrieving right now"><i class="fa-solid fa-radar"></i> Test Scanner</button>
-                    <button id="mem_btn_clear_vault" class="ps-modern-btn secondary" style="color: #ef4444; border-color: rgba(239, 68, 68, 0.3);" title="Delete all Vault Archives"><i class="fa-solid fa-trash-can"></i> Clear All</button>
+                    <button id="mem_btn_test_vector" class="ps-modern-btn secondary" style="color: var(--c-info, #3b82f6); border-color: rgba(59,130,246,0.3);" title="See what memories the AI is retrieving right now"><i class="fa-solid fa-radar"></i> Test Scanner</button>
+                    <button id="mem_btn_clear_vault" class="ps-modern-btn secondary" style="color: var(--c-danger, #ef4444); border-color: rgba(239, 68, 68, 0.3);" title="Delete all Vault Archives"><i class="fa-solid fa-trash-can"></i> Clear All</button>
                 </div>
                 <div id="mem_vault_list" style="max-height: 250px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;">
                     <!-- Vault items injected here -->
@@ -256,11 +253,11 @@ export function renderMemoryCore(c) {
     `);
 
     // Clear All Short-Term Memory
-    $("#mem_btn_clear_short").off("click").on("click", function () {
+    $("#mem_btn_clear_short").off("click").on("click", async function () {
         const mem = localProfile.memoryCore;
         if (!mem.shortTermChunks || mem.shortTermChunks.length === 0) return toastr.info("Short-Term memory is already empty.");
         
-        if (confirm("Are you sure you want to delete ALL Short-Term Memory chunks? They will revert to 'Pending' status.")) {
+        if (await confirmPopup("Delete every short-term memory?", "All summaries are deleted; their messages go back to waiting to be summarised.", { ok: "Delete all" })) {
             mem.shortTermChunks = [];
             delete mem._archivedSet; mem._tokensDirty = true;
             saveProfileToMemory();
@@ -285,14 +282,17 @@ export function renderMemoryCore(c) {
         const file = e.target.files[0];
         if (!file) return;
         const reader = new FileReader();
-        reader.onload = function(evt) {
+        reader.onload = async function(evt) {
             try {
                 const data = JSON.parse(evt.target.result);
                 if (!data.shortTermChunks && !data.longTermVault) {
                     toastr.error("This file isn't a Memory export.");
                     return;
                 }
-                if (confirm("Do you want to merge imported memories with your existing ones? (Click 'Cancel' to overwrite)")) {
+                const how = await choosePopup("Import memories", "Add them to the memories you have, or replace yours with them?",
+                    [{ label: "Add to mine", value: "merge" }, { label: "Replace mine", value: "replace" }]);
+                if (!how) { $("#mem_file_import").val(""); return; }
+                if (how === "merge") {
                     if (data.shortTermChunks) localProfile.memoryCore.shortTermChunks = (localProfile.memoryCore.shortTermChunks || []).concat(data.shortTermChunks);
                     if (data.longTermVault) localProfile.memoryCore.longTermVault = (localProfile.memoryCore.longTermVault || []).concat(data.longTermVault);
                 } else {
@@ -319,7 +319,7 @@ export function renderMemoryCore(c) {
         const mem = localProfile.memoryCore;
         if (!mem.longTermVault || mem.longTermVault.length === 0) return toastr.info("Vault is already empty.");
         
-        if (confirm("WARNING: Are you sure you want to permanently delete ALL Long-Term Vault archives? This cannot be undone.")) {
+        if (await confirmPopup("Delete the whole long-term vault?", "Every archived memory is deleted for good. This can't be undone.", { ok: "Delete all" })) {
             
             // If Semantic Mode is active, wipe them from the actual SillyTavern Vector DB
             if (mem.scannerEngine === 'semantic') {
@@ -557,8 +557,8 @@ export function renderMemoryCore(c) {
                     toastr.warning(`Vector index returned nothing for ${vaultCount} vault archives. Either the inserts never landed or the query failed, and both print to the console. Re-pick Semantic in the engine dropdown to re-run the inserts.`);
                 }
             } else {
-                html += `<div style="background: rgba(168,85,247,0.1); border-left: 3px solid #a855f7; padding: 10px; border-radius: 4px; margin-bottom: 5px;">
-                <div style="color: #a855f7; font-weight: bold; margin-bottom: 4px;">Semantic Embeddings Engine Active</div>
+                html += `<div style="background: rgba(168,85,247,0.1); border-left: 3px solid var(--c-ai, #a855f7); padding: 10px; border-radius: 4px; margin-bottom: 5px;">
+                <div style="color: var(--c-ai, #a855f7); font-weight: bold; margin-bottom: 4px;">Semantic Embeddings Engine Active</div>
                 <div style="color: var(--text-muted); font-size: 0.75rem;">Using SillyTavern's Vector Storage API (LanceDB) to find the deep contextual meaning of the last 2 messages.</div>
             </div>`;
             }
@@ -567,8 +567,8 @@ export function renderMemoryCore(c) {
         // Only show TF-IDF block if Semantic failed OR TF-IDF is manually selected
         if (engine === 'tfidf' || currentSemanticMatches.length === 0) {
             const { keywords: uniqueKeywords } = memGetCachedKeywords(context.chat, 4);
-            html += `<div style="background: rgba(16,185,129,0.1); border-left: 3px solid #10b981; padding: 10px; border-radius: 4px; margin-bottom: 5px;">
-            <div style="color: #10b981; font-weight: bold; margin-bottom: 4px;">TF-IDF Smart Keywords (Last 2 Messages):</div>
+            html += `<div style="background: rgba(16,185,129,0.1); border-left: 3px solid var(--c-live, #10b981); padding: 10px; border-radius: 4px; margin-bottom: 5px;">
+            <div style="color: var(--c-live, #10b981); font-weight: bold; margin-bottom: 4px;">TF-IDF Smart Keywords (Last 2 Messages):</div>
             <div style="color: var(--text-muted); font-size: 0.75rem;">${uniqueKeywords.join(", ") || "None"}</div>
         </div>`;
         }
@@ -584,7 +584,7 @@ export function renderMemoryCore(c) {
                 const scoreColor = engine === 'semantic' ? '#a855f7' : '#3b82f6';
                 html += `<div style="background: rgba(0,0,0,0.3); border-left: 3px solid ${scoreColor}; padding: 10px; border-radius: 4px;">
                 <div style="color: ${scoreColor}; font-weight: bold; font-size: 0.75rem; margin-bottom: 2px;">[Match Score: ${m.score}] | Msg ${m.id}</div>
-                <div style="color: #f59e0b; font-weight: bold; font-size: 0.7rem; margin-bottom: 6px;">Matched Triggers: ${m.matchedWords.join(", ")}</div>
+                <div style="color: var(--c-brand, #f59e0b); font-weight: bold; font-size: 0.7rem; margin-bottom: 6px;">Matched Triggers: ${m.matchedWords.join(", ")}</div>
                 <div style="max-height: 150px; overflow-y: auto; white-space: pre-wrap; font-size: 0.8rem; background: rgba(0,0,0,0.2); padding: 8px; border-radius: 4px;">${content}</div>
             </div>`;
             });
@@ -706,7 +706,7 @@ export function memRenderAccordion() {
                     <div class="mem-accordion-body">
                         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                             <div style="font-size:0.7rem; color:var(--text-muted);">You can manually edit this state extraction before it gets pushed to the Vector DB.</div>
-                            <button class="mem_short_del" data-id="${chunk.id}" style="background: transparent; border: none; color: #ef4444; cursor: pointer; font-size: 0.8rem; padding: 2px 6px;" title="Delete Chunk"><i class="fa-solid fa-trash"></i></button>
+                            <button class="mem_short_del" data-id="${chunk.id}" style="background: transparent; border: none; color: var(--c-danger, #ef4444); cursor: pointer; font-size: 0.8rem; padding: 2px 6px;" title="Delete Chunk"><i class="fa-solid fa-trash"></i></button>
                         </div>
                         <textarea class="mem_chunk_edit" data-id="${chunk.id}">${chunk.summary}</textarea>
                     </div>
@@ -731,8 +731,8 @@ export function memRenderAccordion() {
             });
 
             // Delete button logic
-            acc.find(".mem_short_del").on("click", function () {
-                if (confirm(`Delete short-term memory chunk [Messages: ${chunk.id}]? It will be permanently removed.`)) {
+            acc.find(".mem_short_del").on("click", async function () {
+                if (await confirmPopup("Delete this memory?", `The summary of messages ${chunk.id} is deleted for good.`, { ok: "Delete" })) {
                     const id = $(this).attr("data-id");
                     localProfile.memoryCore.shortTermChunks = localProfile.memoryCore.shortTermChunks.filter(c => c.id !== id);
                     mem._tokensDirty = true; delete mem._archivedSet;
@@ -754,7 +754,7 @@ export function memRenderAccordion() {
         // Add "Load More" button if there are more entries
         if (renderedCount < chunks.length) {
             const remaining = chunks.length - renderedCount;
-            const loadMoreBtn = $(`<button class="mem-accordion-load-more ps-modern-btn secondary" style="width: 100%; padding: 8px; margin-top: 6px; font-size: 0.75rem; color: #f59e0b; border-color: rgba(245,158,11,0.3);"><i class="fa-solid fa-chevron-down"></i> Load More (${remaining} remaining)</button>`);
+            const loadMoreBtn = $(`<button class="mem-accordion-load-more ps-modern-btn secondary" style="width: 100%; padding: 8px; margin-top: 6px; font-size: 0.75rem; color: var(--c-brand, #f59e0b); border-color: rgba(245,158,11,0.3);"><i class="fa-solid fa-chevron-down"></i> Load More (${remaining} remaining)</button>`);
             loadMoreBtn.on("click", function () { renderAccordionBatch(); });
             list.append(loadMoreBtn);
         }
@@ -821,12 +821,12 @@ export function memRenderVault(searchFilter = "") {
 
             const row = $(`
                 <div style="background: rgba(0,0,0,0.2); border: 1px solid var(--border-color); border-radius: 8px; padding: 10px; position: relative;">
-                    <div style="font-size: 0.65rem; color: #3b82f6; font-weight: 700; margin-bottom: 4px; display: flex; justify-content: space-between;">
+                    <div style="font-size: 0.65rem; color: var(--c-info, #3b82f6); font-weight: 700; margin-bottom: 4px; display: flex; justify-content: space-between;">
                         <span>ARCHIVE #${chunk.id}</span>
                         <span>${dateStr}</span>
                     </div>
                     <textarea class="ps-modern-input mem_vault_edit" data-id="${chunk.id}" style="height: 120px; resize: vertical; font-size: 0.75rem; border: none; background: transparent; padding: 0;">${content}</textarea>
-                    <button class="mem_vault_del" data-id="${chunk.id}" style="position: absolute; bottom: 8px; right: 10px; background: transparent; border: none; color: #ef4444; cursor: pointer; font-size: 0.8rem;" title="Delete Archive"><i class="fa-solid fa-trash"></i></button>
+                    <button class="mem_vault_del" data-id="${chunk.id}" style="position: absolute; bottom: 8px; right: 10px; background: transparent; border: none; color: var(--c-danger, #ef4444); cursor: pointer; font-size: 0.8rem;" title="Delete Archive"><i class="fa-solid fa-trash"></i></button>
                 </div>
             `);
 
@@ -843,8 +843,8 @@ export function memRenderVault(searchFilter = "") {
             });
 
             // Delete button
-            row.find(".mem_vault_del").on("click", function () {
-                if (confirm("Permanently delete this archived memory?")) {
+            row.find(".mem_vault_del").on("click", async function () {
+                if (await confirmPopup("Delete this archived memory?", "It is deleted for good.", { ok: "Delete" })) {
                     const id = $(this).attr("data-id");
                     localProfile.memoryCore.longTermVault = localProfile.memoryCore.longTermVault.filter(c => c.id !== id);
                     if (localProfile.memoryCore.scannerEngine === 'semantic') memDeleteFromVectorDB([id]);
@@ -866,7 +866,7 @@ export function memRenderVault(searchFilter = "") {
         // Add "Load More" button if there are more entries
         if (renderedCount < filtered.length) {
             const remaining = filtered.length - renderedCount;
-            const loadMoreBtn = $(`<button class="mem-vault-load-more ps-modern-btn secondary" style="width: 100%; padding: 8px; margin-top: 6px; font-size: 0.75rem; color: #3b82f6; border-color: rgba(59,130,246,0.3);"><i class="fa-solid fa-chevron-down"></i> Load More (${remaining} remaining)</button>`);
+            const loadMoreBtn = $(`<button class="mem-vault-load-more ps-modern-btn secondary" style="width: 100%; padding: 8px; margin-top: 6px; font-size: 0.75rem; color: var(--c-info, #3b82f6); border-color: rgba(59,130,246,0.3);"><i class="fa-solid fa-chevron-down"></i> Load More (${remaining} remaining)</button>`);
             loadMoreBtn.on("click", function () { renderVaultBatch(); });
             list.append(loadMoreBtn);
         }

@@ -11,13 +11,17 @@
 
 import { IMAGE_V2_PROMPTS as P } from "../../../prompts/imageGenV2.js";
 import { renderBlocksTasks } from "../../../state/modules/stats/worker.js";
+import { editable } from "../../../prompts/edits.js";
 
 // Every section a combined answer can carry besides the image prompt (plan 009
 // adds the blocks Chomusuke writes), so none of them leaks into the prompt.
 const SECTION_TAGS = ["Outfit_Tags", "Character_Visual", "World_Update", "World_State", "Bonds", "Character_Sheet", "NPC_Inner_Chatter", "CYOA", "Notebook_Update", "Notebook"];
 const ANY_SECTION = SECTION_TAGS.join("|");
 
-export const V2_STYLES = ["tags", "natural"];
+export const V2_STYLES = ["tags", "natural", "qwen", "krea"];
+
+/** Qwen Image and Krea 2 draw the body in nude shots: their looks ask for more of it. */
+export const wantsLookDetail = style => style === "qwen" || style === "krea";
 export const V2_SHOTS = ["cinematic", "pov", "portrait"];
 export const V2_METHODS = ["placeholders", "reference"];
 
@@ -59,7 +63,7 @@ export function renderCastList(cast, { shot = "cinematic", method = "placeholder
         const sex = c.sex ? `${c.sex}, ` : "";
         const lines = [`${handle}${also}: ${sex}${where}`];
         if (String(c.look || "").trim()) lines.push(`  appearance: ${c.look}`);
-        if (String(c.body || "").trim()) lines.push(`  body (only when the shot shows it): ${c.body}`);
+        if (String(c.body || "").trim()) lines.push(`  body: ${c.body}`);
         if (String(c.outfit || "").trim()) lines.push(`  wearing: ${c.outfit}`);
         else lines.push("  wearing: not noted (describe what they wear)");
         if (String(c.position || "").trim()) lines.push(`  position: ${c.position}`);
@@ -80,15 +84,54 @@ function focusRule(guide, focus) {
         .replace("Three characters at most; anyone else goes in as background tags (people in background, crowd).",
             "Every named character in the moment gets a line of their own; unnamed people go in as background tags (people in background, crowd).")
         .replace("Three characters at most; mention anyone else briefly as background.",
-            "Every named character in the moment gets a sentence of their own; mention unnamed people briefly as background.");
+            "Every named character in the moment gets a sentence of their own; mention unnamed people briefly as background.")
+        .replace("Three characters at most; mention anyone else briefly as people in the background.",
+            "Every named character in the moment gets their own place in the frame; mention unnamed people briefly as people in the background.");
 }
 
-/** The style guide (structure + example + rules), the shot line, extra instructions. */
-export function renderV2Rules({ style = "tags", shot = "cinematic", extra = "", method = "placeholders", focus = "3" } = {}) {
+/** Qwen Image and Krea 2 have no "Edit last prompt": their prompt is always written fresh. */
+export const v2Method = (style, method) => (style === "qwen" || style === "krea" ? "placeholders" : method || "placeholders");
+
+/** Qwen Image and Krea 2 can draw text: the "Text in images" switch shows for them. */
+export const drawsText = style => style === "qwen" || style === "krea";
+
+// The "Text in images" line. Inline, the prompt sits inside prompt="...", so
+// its quotes become single quotes.
+function textLine(inline) {
+    const t = P.textInImages;
+    return inline ? t.replace(/double quotes/g, "single quotes").replace(/"([^"]*)"/g, "'$1'") : t;
+}
+
+/**
+ * The style guide (structure + example + rules), the shot line, extra instructions.
+ * text: the "Text in images" switch (Qwen Image and Krea 2 only); inline: the story writes it in prompt="...".
+ */
+export function renderV2Rules({ style = "tags", shot = "cinematic", extra = "", method = "placeholders", focus = "3", artStyle = "", text = false, inline = false } = {}) {
+    // Plan 026: Qwen Image has its own guide, art style line and shot lines.
+    if (style === "qwen") {
+        const parts = [
+            focusRule(P.style.qwen, String(focus)),
+            P.levels,
+            P.artStyleLine.replace("{{artStyle}}", String(artStyle || "").trim().replace(/\.$/, "")),
+            P.shotQwen[shot] || P.shotQwen.cinematic,
+            ...(text ? [textLine(inline)] : []),
+            P.inEnglish
+        ];
+        if (String(extra || "").trim()) parts.push(`Extra instructions: ${String(extra).trim()}`);
+        return parts.join("\n\n");
+    }
+    // Plan 027: Krea 2 has its own guide and shot lines, and no art style.
+    if (style === "krea") {
+        const parts = [focusRule(P.style.krea, String(focus)), P.levels, P.shotKrea[shot] || P.shotKrea.cinematic,
+            ...(text ? [textLine(inline)] : []), P.inEnglish];
+        if (String(extra || "").trim()) parts.push(`Extra instructions: ${String(extra).trim()}`);
+        return parts.join("\n\n");
+    }
     const guide = focusRule(method === "reference"
         ? [P.reference.head, P.reference[style] || P.reference.tags].join("\n")
         : (P.style[style] || P.style.tags), String(focus));
-    const parts = [guide, P.shot[shot] || P.shot.cinematic, P.inEnglish];
+    // Edit the last prompt writes no @Name, so it has no levels.
+    const parts = [guide, ...(method === "reference" ? [] : [P.levels]), P.shot[shot] || P.shot.cinematic, P.inEnglish];
     if (String(extra || "").trim()) parts.push(`Extra instructions: ${String(extra).trim()}`);
     // A blank line, so the shot line never reads as part of the example above it.
     return parts.join("\n\n");
@@ -153,23 +196,30 @@ export function renderV2InlineSplit({ conditionalText = "", castList = "", rules
 // prompt, as before. Sections come back as tags, not JSON: a broken section
 // loses only itself.
 
+// Dev Mode edits: {{names}} = the characters who need a look, {{who}} =
+// whose outfits (src/prompts/edits.js).
+export const V2_LOOKS_TASK = "- Appearance of {{names}} as 8 to 12 booru tags each, sorted by where they show on the body: Core (sex, an age tag, skin, overall build), Head (hair, eye colour, features of the head and face), Upper (chest, shoulders, arms, hands), Lower (waist, hips, legs), Feet (anything permanent on the feet; most have nothing). Each tag on one line only. Someone with a sheet in <Character_Sheets> looks the way the sheet says; use the story only for what the sheet leaves out. Core always starts with sex (male or female) and an age tag (young adult, adult, mature female, mature male, old woman, old man; never a number like \"30s\"), then skin and build; Head always has hair (colour, length, style) and eye colour. A feminine-looking man gets \"otoko no ko, flat chest\"; a masculine-looking woman gets \"tomboy\". One tag per thing, never two that fight (petite with tall), only real booru tags (\"mole under eye\", not \"moles\"), no small face details (nose, lips, eyelashes). No clothing, expressions, poses or count tags. Skip anyone the text does not describe.";
+export const V2_OUTFIT_TASK = "- Outfit tags {{who}}, sorted by where they are worn: Head (hats, glasses, earrings), Upper (tops, jackets, dresses, bras, anything on the arms), Lower (skirts, shorts, trousers, underwear, tights), Feet (socks, shoes); a garment that covers several goes on the highest one, and the state of dress goes on its own line (Feet: barefoot). Main garments only, 3 to 6 booru tags in all, one tag per garment with its colour, material and print (\"oversized pink sweater\", \"white cat print bra\"; never two tags for one garment), plus one standout accessory; plain over detailed; keep the state of dress; clothing only, nothing the text does not say.";
+export const COMBINED_IMAGE_TASK = "The image shows the moment the latest exchange ends on; draw nothing that has already ended (someone who put an item away no longer holds it).";
+
 /**
  * The instructions for the extra sections (no heading, no answer shape).
  * @param {{ outfits?: Array<{ name: string, outfit: string }>, looks?: string[], followUpdate?: boolean }} needs
  *   followUpdate: in a combined call, also give tags for every outfit the World_Update changes
  */
-export function renderV2ExtraTasks({ outfits = [], looks = [], followUpdate = false } = {}) {
+export function renderV2ExtraTasks({ outfits = [], looks = [], followUpdate = false, detail = false } = {}) {
     const parts = [];
     if (outfits.length || followUpdate) {
         const who = followUpdate
             ? `for every character whose Outfit your World_Update changes${outfits.length ? ", and for these outfits" : ""}`
             : "for these outfits";
-        parts.push(`- Outfit tags ${who}: main garments only, 3 to 6 booru tags, one tag per garment with its colour, material and print ("oversized pink sweater", "white cat print bra"; never two tags for one garment), plus one standout accessory; plain over detailed; keep the state of dress; clothing only, nothing the text does not say.`);
+        parts.push(editable("imageV2OutfitTask", V2_OUTFIT_TASK.replace("{{who}}", who), { who }));
         parts.push(...outfits.map(o => `  ${o.name}: ${o.outfit}`));
     }
     if (outfits.length || followUpdate || looks.length) parts.push(`- ${P.tagsInEnglish}`);
     if (looks.length) {
-        parts.push(`- Appearance of ${looks.join(", ")} as 8 to 12 booru tags each. Someone with a sheet in <Character_Sheets> looks the way the sheet says; use the story only for what the sheet leaves out. Always start with sex (male or female) and an age tag (young adult, adult, mature female, mature male, old woman, old man; never a number like "30s"), then hair, eye colour, skin, build, permanent features. A feminine-looking man gets "otoko no ko, flat chest"; a masculine-looking woman gets "tomboy". One tag per thing, never two that fight (petite with tall), only real booru tags ("mole under eye", not "moles"), no small face details (nose, lips, eyelashes). No clothing, expressions, poses or count tags. Skip anyone the text does not describe.`);
+        const task = editable("imageV2LooksTask", V2_LOOKS_TASK.replace("{{names}}", looks.join(", ")), { names: looks.join(", ") });
+        parts.push(detail ? `${task} ${P.lookDetail}` : task);
     }
     return parts.join("\n");
 }
@@ -177,22 +227,22 @@ export function renderV2ExtraTasks({ outfits = [], looks = [], followUpdate = fa
 /** The answer-shape lines for the extra sections that were asked for. */
 export function renderV2ExtraShape({ outfits = [], looks = [], followUpdate = false } = {}) {
     return [
-        ...(outfits.length || followUpdate ? ["<Outfit_Tags name=\"Name\">tag, tag, tag</Outfit_Tags>"] : []),
-        ...(looks.length ? ["<Character_Visual name=\"Name\">tag, tag, tag</Character_Visual>"] : [])
+        ...(outfits.length || followUpdate ? ["<Outfit_Tags name=\"Name\">\nHead:\nUpper: tag, tag\nLower: tag\nFeet: tag\n</Outfit_Tags>"] : []),
+        ...(looks.length ? ["<Character_Visual name=\"Name\">\nCore: female, young adult, pale skin, slender\nHead: long hair, wavy hair, auburn hair, green eyes, freckles\nUpper: medium breasts\nLower: long legs\nFeet:\n</Character_Visual>"] : [])
     ];
 }
 
 /**
  * The extras for a normal (image-only) call: tasks and answer shape.
  * The sheets the looks need go BEFORE the story (renderV2ManualPrompt), not here.
- * @param {{ outfits?: Array<{ name: string, outfit: string }>, looks?: string[] }} needs
+ * @param {{ outfits?: Array<{ name: string, outfit: string }>, looks?: string[], detail?: boolean }} needs
  * @returns {string} "" when nothing extra is needed
  */
-export function renderV2Extras({ outfits = [], looks = [] } = {}) {
+export function renderV2Extras({ outfits = [], looks = [], detail = false } = {}) {
     if (!outfits.length && !looks.length) return "";
     return [
         "## In the same answer",
-        renderV2ExtraTasks({ outfits, looks }),
+        renderV2ExtraTasks({ outfits, looks, detail }),
         "",
         "Answer in this shape and nothing else:",
         "<Image_Prompt>the image prompt</Image_Prompt>",
@@ -278,7 +328,7 @@ export function renderCombinedPrompt(a) {
                 : ` Where your ${tag} changes someone's clothing, draw them in the new clothing.`;
         tasks.push([
             `# Task ${++n}: Image prompt`,
-            `The image shows the moment the latest exchange ends on; draw nothing that has already ended (someone who put an item away no longer holds it).${follow}`,
+            `${editable("combinedImageTask", COMBINED_IMAGE_TASK)}${follow}`,
             a.imageRules,
             a.onlyIfPhoto ? "If nobody in the latest exchange takes, sends or shares a picture, write <Image_Prompt>NONE</Image_Prompt>." : ""
         ].filter(Boolean).join("\n"));
@@ -316,7 +366,26 @@ export function renderCombinedPrompt(a) {
 
 // The system line for whatever the call does. World State + image keeps the
 // original wording.
-function combinedSystem({ world, image, blocks, notebook = false }) {
+function combinedSystem(a) {
+    return editable("combinedSystem", builtinCombinedSystem(a), { jobs: combinedJobs(a) });
+}
+
+/** What the call does, as a list ("note what it changed in the world and write an image prompt…"). */
+function combinedJobs({ world, image, blocks, notebook = false }) {
+    const jobs = [];
+    if (world) jobs.push("note what it changed in the world");
+    if (blocks) jobs.push("keep the story's running notes (how the characters feel about {{user}}, {{user}}'s condition and belongings, their private thoughts, the choices open next)");
+    if (notebook === "setup") jobs.push("start the author's notebook (two or three truths the story keeps hidden)");
+    else if (notebook) jobs.push("keep the author's notebook (the clues it shows, who finds out a hidden truth, what comes out)");
+    if (image) jobs.push("write an image prompt for the moment it ends on");
+    const last = jobs.pop();
+    return jobs.length ? `${jobs.join(", ")} and ${last}` : last;
+}
+
+/** Dev Mode opens the combined call's opening with {{jobs}}. */
+export const COMBINED_SYSTEM_EDITABLE = "You follow an ongoing roleplay. You read the latest exchange and {{jobs}}. You never continue the story, never explain, and never add facts the exchange does not state or clearly show.";
+
+function builtinCombinedSystem({ world, image, blocks, notebook = false }) {
     if (world && image && !blocks && !notebook) return COMBINED_SYSTEM;
     const jobs = [];
     if (world) jobs.push("note what it changed in the world");

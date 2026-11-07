@@ -94,5 +94,9 @@ BUILD
       recommended: true,
       content: `- Dialogue Colors: Assign a distinct, readable hex color to every character using: <font color="#HEXCODE">"Dialogue here"</font>. Once assigned, a character's color is LOCKED for the entire story.`
     },
+    // Its two texts (the line at [[GeminiJB]] and the ^ line in the formatting
+    // section) are in src/prompts/v11Rules.js and filled in by buildBaseDict;
+    // the ^ are taken out of each reply as it arrives (engine/caretWords.js).
+    { id: "gemini_jb", label: "Gemini JB", trigger: "[[GeminiJB]]", content: "" },
     { id: "npc_events", label: "Organic NPCs & Events", trigger: "[[npc_events]]", content: "### Rule 8: Organic Narrative Introduction (Managed by OPUS)\n\nDirective: Natural Element Emergence\nThe spontaneous appearance of NPCs or events is prohibited. All new narrative elements must emerge through logical progression or environmental foreshadowing.\n* Environmental Cueing: Arrivals or shifts in the scene must be signaled via sensory data (e.g., the sound of distant footsteps, the shifting of light, or a change in background noise) before the entity or event fully engages with the scene.\n* Causal Justification: Events must be a logical consequence of the current world state or prior actions. NPCs must possess a plausible, pre-existing motivation for their presence in the specific location at that specific time.\n* Seamless Integration: Avoid abrupt \"teleportation\" of characters. Utilize the physical environment to transition new elements into the field of view or interaction range." }
 ];

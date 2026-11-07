@@ -20,14 +20,23 @@ import { createStateStore } from "./store.js";
 import { worldModule } from "./modules/world/index.js";
 import { bondsModule, sheetModule, chatterModule, trackerModule, cyoaModule } from "./modules/stats/index.js";
 import { renderWorkerNotes, cleanWorkerAnswer, blockTextIn } from "./modules/stats/worker.js";
-import { pickBondsFor } from "./modules/stats/model.js";
+import { pickBondsFor, unsentBondKeys, movedBondNames, bondNamesFromCast } from "./modules/stats/model.js";
+import { meguminCleanChatHistoryText } from "../engine/chatText.js";
 import { renderBondsNotes, renderSheetNotes } from "./modules/stats/render.js";
-import { presentCast, findCast } from "./modules/world/model.js";
+import { presentCast, remoteCast, findCast, castDisplayName, STALE_AFTER_DEFAULT, LIST_LIMITS, OFFSCREEN_LIMIT } from "./modules/world/model.js";
+import { parseScene, sceneBlockOf } from "./scene.js";
+import { SCENE_RULES, SCENE_TEMPLATE, KNOWN_NAMES_LEAD, KNOWN_NAMES_TASK } from "../prompts/scene.js";
+import { editable } from "../prompts/edits.js";
+import { knownNameList } from "./names.js";
 import { notebookModule } from "./modules/notebook/index.js";
+import { createCustomModule } from "./modules/custom/index.js";
+import { normalizeCustomBlock, customBlockDue, customTagsToHide, customTagsToKeep } from "./modules/custom/model.js";
+import { customInfoSections } from "./modules/custom/render.js";
+import { parseCustomBlocks, joinCustomRead, customReadPart } from "./modules/custom/parse.js";
 import {
-    notebookPhase, renderNotebookSetup, renderNotebookForPrompt, renderNotebookUpdateRules, notebookTurnLabeler
+    notebookPhase, renderNotebookSetup, renderNotebookForPrompt, renderNotebookUpdateRules, notebookTurnLabeler, truthCountWords
 } from "./modules/notebook/render.js";
-import { liveTruths } from "./modules/notebook/model.js";
+import { filledLiveTruths, LIVE_CAP, clampLiveCap } from "./modules/notebook/model.js";
 import { parseNotebook } from "./modules/notebook/parse.js";
 import {
     replyWroteNotebookChanges, notebookAnswerBlock, joinNotebookRead, notebookReadPart, parseNotebookRead,
@@ -37,6 +46,7 @@ import {
     renderWorldForPrompt, renderWorldInstructions, renderWorldCard, findReturning, isEmptyWorld, describeWorldChange,
     renderWorldExtractPrompt
 } from "./modules/world/render.js";
+import { setWorldLimits } from "./modules/world/render.js";
 
 // Settings only: the state itself lives in the chat file, never in settings.json.
 export const WORLD_SETTINGS_DEFAULTS = {
@@ -44,26 +54,108 @@ export const WORLD_SETTINGS_DEFAULTS = {
     injectionDetail: "full",     // full | scene
     showReturning: true,
     showChanges: true,
+    // Plan 020: anyone in the scene not named for this many replies is moved
+    // out of it (0 = never). See staleStep in modules/world/model.js.
+    staleAfter: STALE_AFTER_DEFAULT,
+    // Plan 020: "changes" = each reply writes only what it changed;
+    // "full" = each reply writes the whole scene again (V10's habit, in
+    // V11's short lines; the store still keeps it and draws the card).
+    writeMode: "changes",
     journalDepth: 200
 };
 
 export function worldSettings() {
+    // The prompts read the limits from here, so they are set before any render.
+    setWorldLimits(worldLimits());
     return { ...WORLD_SETTINGS_DEFAULTS, ...((localProfile && localProfile.worldState) || {}) };
+}
+
+/** Limits picked in the World State tab, 1–20 each; the built-in numbers otherwise. */
+export const WORLD_LIMITS_MAX = 20;
+export function worldLimits() {
+    const l = (localProfile && localProfile.worldState && localProfile.worldState.limits) || {};
+    const pick = (k, d) => {
+        const n = Math.round(Number(l[k]));
+        return n >= 1 && n <= WORLD_LIMITS_MAX ? n : d;
+    };
+    return {
+        threads: pick("threads", LIST_LIMITS.threads),
+        seeds: pick("seeds", LIST_LIMITS.seeds),
+        timers: pick("timers", LIST_LIMITS.timers),
+        offscreen: pick("offscreen", OFFSCREEN_LIMIT)
+    };
 }
 
 /**
  * How replies update the World State right now:
- *   "manual"    — they don't (Blocks tab: Updates → Manual)
- *   "sidemodel" — Chomusuke reads each reply (Chomusuke tab: World State route on)
+ *   "manual"    — they don't (World State tab: Who writes the updates → Only me)
+ *   "sidemodel" — Chomusuke reads each reply (World State tab → Chomusuke, or
+ *                 the Chomusuke tab's World State route; the same setting)
  *   "inline"    — the story model writes the block in its reply (everything else)
- * The Chomusuke route is decided in the Chomusuke tab with every other routed
- * feature, so the Blocks tab only says whether updates happen at all.
  */
 export function worldUpdateMode() {
     if (worldSettings().updateMode === "manual") return "manual";
     const c = localProfile && localProfile.chomusuke;
     if (c && c.enabled && c.profileId && c.features && c.features.worldState === true) return "sidemodel";
     return "inline";
+}
+
+// ── The scene list (plan 022) ─────────────────────────────────────────────
+
+/** Whether the story model writes a <Scene> list: a module that needs names is on. */
+export function sceneWanted() {
+    if (!adapter.getMeta()) return false;
+    return (worldEnabled() && worldUpdateMode() !== "manual") || statBlockOn("bonds") || statBlockOn("chatter");
+}
+
+/** The <Scene> rules and line to fill in, or null. */
+export function sceneBlockRequest() {
+    return sceneWanted() ? { rules: sub(editable("sceneRules", SCENE_RULES)), template: editable("sceneTemplate", SCENE_TEMPLATE) } : null;
+}
+
+// Everyone the story is with: in the scene and on a call, with their nicknames.
+function scenePeople(world) {
+    return [...presentCast(world), ...remoteCast(world)].flatMap(c => [c.name, ...(c.aliases || [])]);
+}
+
+// Without World State: the names in the last <Scene> list before `index`.
+function sceneNamesBefore(index) {
+    const chat = adapter.getChat();
+    for (let i = Math.min(index, chat.length) - 1; i >= 0; i--) {
+        const m = chat[i];
+        if (!m || m.is_user || m.is_system) continue;
+        const scene = parseScene(String(m.mes || ""));
+        if (scene) return [...scene.here, ...scene.remote].map(n => n.name);
+    }
+    return [];
+}
+
+/**
+ * <Known_Names> for <Current_Info>: every character on file once, in the one
+ * spelling to use, the scene first (at most 30). "" when no list is asked for.
+ */
+export function knownNamesBlock() {
+    if (!sceneWanted()) return "";
+    const world = worldEnabled() && stateStore.hasState("world") ? getWorldState() : null;
+    const bonds = stateStore.hasState("bonds") ? stateStore.getState("bonds") : null;
+    const sources = [
+        ...Object.values((world && world.cast) || {}).map(c => ({ name: c.name, aliases: c.aliases || [], seen: c.lastSeenSeq || 0 })),
+        ...Object.values((bonds && bonds.people) || {}).map(p => ({ name: p.name, seen: p.seq || 0 }))
+    ];
+    const first = world ? [...presentCast(world), ...remoteCast(world)].map(c => c.name) : sceneNamesBefore(adapter.getChat().length);
+    const list = knownNameList(sources, { first });
+    return list.length ? `<Known_Names>\n${editable("knownNamesLead", KNOWN_NAMES_LEAD)}\n${list.join(", ")}\n</Known_Names>` : "";
+}
+
+// The same list for Chomusuke, with the line that says what it is for.
+function knownNamesForReader() {
+    const block = knownNamesBlock();
+    return block ? `\n\n${block}\n${editable("knownNamesTask", KNOWN_NAMES_TASK)}` : "";
+}
+
+/** Each reply writes the whole scene again (the "V10 + V11" setting). */
+export function worldWritesFull() {
+    return worldSettings().writeMode === "full";
 }
 
 /** The World State block is switched on in the block stack. */
@@ -90,12 +182,19 @@ const adapter = {
         const u = sub("{{user}}");
         if (u && u !== "{{user}}") names.push(u);
         return names;
-    }
+    },
+    applyContext: mid => mid === "world"
+        ? { staleAfter: Number(worldSettings().staleAfter) || 0, noLimits: worldWritesFull(), limits: worldLimits() }
+        : mid === "notebook" ? { liveCap: notebookReplayCap() } : {}
 };
+
+// Plan 023: the user's custom blocks, read from the profile each time (they
+// change under the store as the user edits them).
+const customModule = createCustomModule(() => (localProfile && localProfile.blockStack && localProfile.blockStack.custom) || []);
 
 export const stateStore = createStateStore({
     adapter,
-    modules: { world: worldModule, bonds: bondsModule, sheet: sheetModule, chatter: chatterModule, tracker: trackerModule, cyoa: cyoaModule, notebook: notebookModule },
+    modules: { world: worldModule, bonds: bondsModule, sheet: sheetModule, chatter: chatterModule, tracker: trackerModule, cyoa: cyoaModule, notebook: notebookModule, custom: customModule },
     journalDepth: () => worldSettings().journalDepth
 });
 
@@ -126,7 +225,7 @@ export function worldPromptBlock() {
     const cfg = worldSettings();
     const state = getWorldState();
     const returning = cfg.showReturning ? findReturning(state, recentText()) : [];
-    return sub(renderWorldForPrompt(state, { detail: cfg.injectionDetail, returning, noSecret: notebookEnabled() }));
+    return sub(renderWorldForPrompt(state, { detail: cfg.injectionDetail, returning, noSecret: worldHidesSecrets(), noLimits: worldWritesFull() }));
 }
 
 /**
@@ -137,19 +236,33 @@ export function worldPromptBlock() {
 export function worldBlockRequest() {
     if (!worldEnabled()) return null;
     if (worldUpdateMode() !== "inline") return null;
-    const mode = !stateStore.hasState("world") || stateStore.isPendingFullRewrite("world") ? "bootstrap" : "update";
-    const ins = renderWorldInstructions(mode, { noSecret: notebookEnabled() });
+    const has = stateStore.hasState("world");
+    const mode = !has || stateStore.isPendingFullRewrite("world") || worldWritesFull() ? "bootstrap" : "update";
+    const ins = renderWorldInstructions(mode, { noSecret: worldHidesSecrets(), carry: has, noLimits: worldWritesFull() });
     return { rules: sub(ins.rules), template: sub(ins.template), mode };
 }
 
-/** The card body for one message: the world as it stood right after it. */
+/** The last reply in the chat: its card shows the scene as it is now. */
+export function worldIsLatestReply(msgIndex) {
+    const chat = adapter.getChat();
+    for (let i = chat.length - 1; i >= 0; i--) {
+        const m = chat[i];
+        if (!m || m.is_system || m.is_user) continue;
+        return i === msgIndex;
+    }
+    return false;
+}
+
+/** The card body for one message: the world as it stood right after it. The
+ *  latest reply shows the scene now, so your own edits (removing someone from
+ *  the scene) show at once instead of after the next reply. */
 export function worldCardTextAt(msgIndex) {
     if (!worldEnabled()) return "";
     const msg = adapter.getChat()[msgIndex];
     const seq = msg?.extra?.megumin_seq;
-    const state = typeof seq === "number" ? stateStore.getStateAt("world", seq) : getWorldState();
+    const state = typeof seq === "number" && !worldIsLatestReply(msgIndex) ? stateStore.getStateAt("world", seq) : getWorldState();
     if (isEmptyWorld(state)) return "";
-    return sub(renderWorldCard(state, { pcName: sub("{{user}}"), noSecret: notebookEnabled() }));
+    return sub(renderWorldCard(state, { pcName: sub("{{user}}"), noSecret: worldHidesSecrets() }));
 }
 
 /**
@@ -225,9 +338,21 @@ function newcomersOf(step) {
         .filter(n => n.others.length);
 }
 
-/** The user says `name` is `into`: one character from now on. */
+/**
+ * The user says `name` is `into`: one character from now on. Their bonds
+ * join too (plan 022), as a linked edit that goes when this one goes.
+ */
 export function worldSameCharacter(name, into) {
-    return worldEdit([{ type: "merge", who: name, into }]);
+    const entry = worldEdit([{ type: "merge", who: name, into }]);
+    if (entry && stateStore.hasState("bonds")) {
+        stateStore.addUserEntry("bonds", { people: [], merge: [{ who: name, into }], mergeOf: entry.id });
+    }
+    return entry;
+}
+
+// The Bonds edits that came with a World State "Same person as" (mergeOf).
+function linkedBondEdits(entryId) {
+    return stateStore.activeEntries("bonds").filter(e => e.source === "user" && e.parsed && e.parsed.mergeOf === entryId);
 }
 
 /** A manual edit from the editor. Returns the entry, or null with no chat open. */
@@ -236,11 +361,24 @@ export function worldEdit(changes) {
     return stateStore.addUserEntry("world", { kind: "delta", changes, skipped: [], noChanges: false, byUser: true });
 }
 
+/** Who is in the scene now: [{ name, display }] (display = how the card names them). */
+export function worldPresentNames() {
+    if (!worldHasState()) return [];
+    return presentCast(getWorldState()).map(c => ({ name: c.name, display: castDisplayName(c) }));
+}
+
+/** From the card's ×: `name` left the scene (kept, off-screen), or is forgotten. */
+export function worldRemoveFromScene(name, { forget = false } = {}) {
+    return worldEdit([forget ? { type: "forget", who: name } : { type: "leave", who: name, where: "" }]);
+}
+
 export function worldSetEntryDisabled(entryId, disabled) {
+    for (const e of linkedBondEdits(entryId)) stateStore.setDisabled(e.id, disabled);
     return stateStore.setDisabled(entryId, disabled);
 }
 
 export function worldRemoveUserEntry(entryId) {
+    for (const e of linkedBondEdits(entryId)) stateStore.removeUserEntry(e.id);
     return stateStore.removeUserEntry(entryId);
 }
 
@@ -339,6 +477,9 @@ function exchangeFor(index, text, mode) {
         parts.unshift(`${m.name || (m.is_user ? sub("{{user}}") : "Narrator")}: ${proseOnly(m.mes)}`);
     }
     parts.push(`${adapter.getChat()[index]?.name || "Narrator"}: ${proseOnly(text)}`);
+    // The reply's scene list: who is there comes from it (plan 022).
+    const scene = sceneBlockOf(text);
+    if (scene) parts.push(scene);
     return parts.join("\n\n");
 }
 
@@ -378,10 +519,12 @@ export function worldExtractMessage(index, { force = false } = {}) {
             // Built when its turn comes, so a queued read sees the entries that
             // landed before it.
             const before = stateStore.getStateAt("world", st.seq - 0.5);
-            const mode = isEmptyWorld(before) ? "bootstrap" : "update";
-            const noSecret = notebookEnabled();
-            const notes = mode === "bootstrap" ? "" : sub(renderWorldForPrompt(before, { detail: "full", noSecret }));
-            const built = renderWorldExtractPrompt({ notes, exchange: exchangeFor(index, text, mode), mode, noSecret, sheets: worldSheets() });
+            const empty = isEmptyWorld(before);
+            const mode = empty || worldWritesFull() ? "bootstrap" : "update";
+            const noSecret = worldHidesSecrets();
+            const noLimits = worldWritesFull();
+            const notes = empty ? "" : sub(renderWorldForPrompt(before, { detail: "full", noSecret, noLimits }) + knownNamesForReader());
+            const built = renderWorldExtractPrompt({ notes, exchange: exchangeFor(index, text, empty ? "bootstrap" : "update"), mode, noSecret, carry: !empty, noLimits, sheets: worldSheets() });
             req = { system: sub(built.system), user: sub(built.user), prefill: built.prefill, job: "world" };
             // The marker is set only once this job has the worker. Chomusuke runs
             // are queued; set while waiting, it would hijack whatever generation
@@ -467,10 +610,14 @@ export function worldBeginExternalRead(index) {
 /** The notes (state BEFORE the reply) and the exchange, built at run time. */
 export function worldReadInputs(token) {
     const before = stateStore.getStateAt("world", token.seq - 0.5);
-    const mode = isEmptyWorld(before) ? "bootstrap" : "update";
-    const noSecret = notebookEnabled();
-    const notes = mode === "bootstrap" ? "" : sub(renderWorldForPrompt(before, { detail: "full", noSecret }));
-    return { mode, notes, noSecret, exchange: exchangeFor(token.index, token.text, mode), sheets: worldSheets() };
+    const empty = isEmptyWorld(before);
+    const mode = empty || worldWritesFull() ? "bootstrap" : "update";
+    const noSecret = worldHidesSecrets();
+    const noLimits = worldWritesFull();
+    const notes = empty ? "" : sub(renderWorldForPrompt(before, { detail: "full", noSecret, noLimits }) + knownNamesForReader());
+    // needScene (plan 022): the reply wrote no <Scene>, so Chomusuke writes it.
+    const needScene = sceneWanted() && !parseScene(String(token.text || ""));
+    return { mode, notes, noSecret, carry: !empty, noLimits, needScene, exchange: exchangeFor(token.index, token.text, empty ? "bootstrap" : "update"), sheets: worldSheets() };
 }
 
 // The card(s) (Description and Personality) and the persona, sent with every
@@ -584,6 +731,42 @@ export function notebookEnabled() {
 // with the tab's switch, behind a warning. An old chat's
 // `megumin_notebook.paused` flag is simply ignored.
 
+/** How many truths can be live (The Notebook tab, plan 020): 3 by default. */
+export function notebookCap() {
+    const n = localProfile && localProfile.notebook && localProfile.notebook.maxTruths;
+    return n === undefined ? LIVE_CAP : clampLiveCap(n);
+}
+
+// Replaying a chat must not drop truths written while the number was higher:
+// each chat keeps the highest number it was run with (megumin_notebook.capHigh),
+// and the replay allows that many. Lowering the number stops new truths only.
+function notebookReplayCap() {
+    const meta = adapter.getMeta();
+    const high = meta && meta.megumin_notebook && Number(meta.megumin_notebook.capHigh);
+    return Math.max(notebookCap(), Number.isFinite(high) ? clampLiveCap(high) : 0);
+}
+
+/** Records the number in use for the open chat (on each request, and when it changes). */
+export function notebookNoteCap() {
+    const meta = adapter.getMeta();
+    if (!meta) return;
+    if (!meta.megumin_notebook || typeof meta.megumin_notebook !== "object") meta.megumin_notebook = {};
+    const cap = notebookCap();
+    if (!(Number(meta.megumin_notebook.capHigh) >= cap)) {
+        meta.megumin_notebook.capHigh = cap;
+        adapter.saveMeta();
+    }
+}
+
+/**
+ * World State leaves out Secret and Seeds: the Notebook is on and the user
+ * didn't ask to keep them (The Notebook tab, plan 020).
+ */
+export function worldHidesSecrets() {
+    if (!notebookEnabled()) return false;
+    return !(localProfile && localProfile.notebook && localProfile.notebook.keepWorldSecrets);
+}
+
 export function notebookState() {
     return stateStore.getState("notebook");
 }
@@ -597,7 +780,7 @@ export function notebookCurrentPhase() {
 /** <Author_Notebook> for Current Info, or "". */
 export function notebookPromptBlock() {
     if (notebookCurrentPhase() !== "running") return "";
-    return sub(renderNotebookForPrompt(notebookState()));
+    return sub(renderNotebookForPrompt(notebookState(), { cap: notebookCap() }));
 }
 
 /**
@@ -606,15 +789,16 @@ export function notebookPromptBlock() {
  */
 export function notebookBlockRequest() {
     const phase = notebookCurrentPhase();
+    if (phase !== "off") notebookNoteCap();
     if (phase === "setup") {
-        return { phase, rules: sub(renderNotebookSetup()), template: "<Notebook>\n[two or three truths, each in the form above]\n</Notebook>" };
+        return { phase, rules: sub(renderNotebookSetup({ cap: notebookCap() })), template: `<Notebook>\n[${truthCountWords(notebookCap())}, each in the form above]\n</Notebook>` };
     }
     if (phase === "running") {
         // With the Chomusuke route on, the story model only writes new truths.
         const newOnly = notebookViaChomusuke();
         return {
             phase,
-            rules: sub(renderNotebookUpdateRules({ newOnly })),
+            rules: sub(renderNotebookUpdateRules({ newOnly, cap: notebookCap() })),
             template: newOnly
                 ? "<Notebook_Update>\n[a new truth with its lines; leave this block out when there is none]\n</Notebook_Update>"
                 : "<Notebook_Update>\n[change lines; leave this block out when nothing changed]\n</Notebook_Update>"
@@ -734,7 +918,7 @@ function fileNotebookRead(at, swipe, replyText, block) {
 // nothing (null).
 function readKindFor(seq, text) {
     if (text == null) return null;
-    if (liveTruths(stateStore.getStateAt("notebook", seq - 0.5)).length) {
+    if (filledLiveTruths(stateStore.getStateAt("notebook", seq - 0.5)).length) {
         return replyWroteNotebookChanges(text) ? null : "read";
     }
     return replyWroteTruths(text) ? null : "setup";
@@ -780,7 +964,7 @@ export function notebookBeginRead(index, { force = false } = {}) {
 
 /** <Author_Notebook> as it stood before the reply, for the worker. */
 export function notebookReadNotes(token) {
-    return sub(renderNotebookForPrompt(stateStore.getStateAt("notebook", token.seq - 0.5)));
+    return sub(renderNotebookForPrompt(stateStore.getStateAt("notebook", token.seq - 0.5), { cap: notebookCap() }));
 }
 
 /**
@@ -845,14 +1029,48 @@ export function blockViaChomusuke(id) {
     return statBlockOn(id);
 }
 
-/** Does this text carry the module's block (the reply wrote it itself)? */
+/** Does this text carry the block (the reply wrote it itself)? Stat blocks and custom blocks (plan 023). */
 export function statsModuleParses(id, text) {
     const m = STAT_MODULE_DEFS[id];
-    return Boolean(m && m.parse(String(text || "")));
+    if (m) return Boolean(m.parse(String(text || "")));
+    const b = customBlocks().find(x => x.id === id);
+    return Boolean(b && parseCustomBlocks(String(text || ""), [b]));
 }
 
+/** Chomusuke is on and has a connection to send its jobs to. */
+export function chomusukeReady() {
+    const c = localProfile && localProfile.chomusuke;
+    return Boolean(c && c.enabled && c.profileId);
+}
+
+/**
+ * Plan 023: Chomusuke writes this custom block (set so in the block's editor,
+ * in the stack, Chomusuke ready). A block set to Chomusuke while Chomusuke
+ * can't run is left unwritten: the story model is never asked for it.
+ */
+export function customViaChomusuke(id) {
+    const b = customBlocksOn().find(x => x.id === id);
+    return Boolean(b && b.writer === "chomusuke" && chomusukeReady());
+}
+
+/** The blocks Chomusuke writes after each reply: stat blocks, then custom blocks. */
 export function routedBlockIds() {
-    return Object.keys(BLOCK_ROUTE_TAGS).filter(blockViaChomusuke);
+    return [
+        ...Object.keys(BLOCK_ROUTE_TAGS).filter(blockViaChomusuke),
+        ...customBlocksOn().filter(b => customViaChomusuke(b.id)).map(b => b.id)
+    ];
+}
+
+/** The tag a routed block is written under. */
+export function routedBlockTag(id) {
+    if (BLOCK_ROUTE_TAGS[id]) return BLOCK_ROUTE_TAGS[id];
+    const b = customBlocks().find(x => x.id === id);
+    return b ? b.tag : "";
+}
+
+/** A Chomusuke job made only of custom blocks runs under its own name, so the Blocks route being off doesn't send it to the story's connection. */
+export function blocksJobKey(ids) {
+    return (ids || []).some(id => id in BLOCK_ROUTE_TAGS) ? "blocks" : "customBlocks";
 }
 
 /** The block is switched on (the Story Tracker follows the Story Plan). */
@@ -876,7 +1094,61 @@ function statsRecord(index) {
     if (!msg || msg.is_user || msg.is_system) return;
     const text = String(msg.mes || "");
     const ids = STAT_MODULES.filter(id => !blockViaChomusuke(id) || STAT_MODULE_DEFS[id].parse(text));
-    if (ids.length) stateStore.recordMessage(index, { moduleIds: ids });
+    if (!ids.length) return;
+    const bondsFacts = ids.includes("bonds") ? bondsFactsFor(index) : undefined;
+    stateStore.recordMessage(index, { moduleIds: ids, ...(bondsFacts ? { facts: { bonds: bondsFacts } } : {}) });
+}
+
+// The last few messages before `index`, blocks removed: what the prompt for
+// that reply read names from (recentStoryText in buildBaseDict).
+function storyTextBefore(index, count = 3) {
+    const chat = adapter.getChat();
+    const out = [];
+    for (let i = index - 1; i >= 0 && out.length < count; i--) {
+        const m = chat[i];
+        if (!m || m.is_system) continue;
+        out.push(meguminCleanChatHistoryText(String(m.mes || "")));
+    }
+    return out.join("\n");
+}
+
+// What a reply's Bonds block means, saved with it so a reload reads it the
+// same way:
+//   same:   names World State knows under another spelling ("Duncan" is
+//           Duncan Cairns), so they land on that character's bonds
+//   unsent: characters on file the reply wrote numbers for without having
+//           been handed theirs (worked out again from what came before)
+// `parsed`: Chomusuke's Bonds block (it gets `same` only: what it was
+// handed is not the story's list).
+function bondsFactsFor(index, parsed = null) {
+    const msg = adapter.getChat()[index];
+    if (!msg) return undefined;
+    const text = String(msg.mes || "");
+    const fromWorker = Boolean(parsed);
+    parsed = parsed || bondsModule.parse(text);
+    if (!parsed || !Array.isArray(parsed.people) || !parsed.people.length) return undefined;
+    const st = stateStore.stamp(msg);
+    if (!st) return undefined;
+    if (st.dirty) adapter.saveChat();
+    const before = st.seq - 0.5;
+    const state = stateStore.getStateAt("bonds", before);
+    const facts = {};
+    const world = worldEnabled() && stateStore.hasState("world") ? stateStore.getStateAt("world", before) : null;
+    if (world) {
+        // The reply's own World block counts: "+ Mira Vale" there and "Mira"
+        // in Bonds are one person.
+        const wp = worldModule.parse(text);
+        const cast = (wp ? worldModule.apply(world, wp, { seq: st.seq }).state : world).cast;
+        const same = bondNamesFromCast(state, parsed, cast);
+        if (Object.keys(same).length) facts.same = same;
+    }
+    if (!fromWorker && Object.keys((state && state.people) || {}).length) {
+        const present = world ? scenePeople(world) : sceneNamesBefore(index);
+        const handed = pickBondsFor(state, { present, recentText: storyTextBefore(index), latestNames: lastBondsNames(st.seq) });
+        const unsent = unsentBondKeys(state, parsed, handed, facts);
+        if (unsent.length) facts.unsent = unsent;
+    }
+    return Object.keys(facts).length ? facts : undefined;
 }
 
 function statsOnReceived(messageId) {
@@ -902,13 +1174,18 @@ function statsOnChatLoaded() {
 
 // Whose bonds the story is handed right now (record keys).
 function bondsInPlay(state, recentText) {
-    const present = worldHasState()
-        ? presentCast(getWorldState()).flatMap(c => [c.name, ...(c.aliases || [])])
-        : [];
-    const entries = stateStore.activeEntries("bonds").filter(e => !e.missing);
+    const present = worldHasState() ? scenePeople(getWorldState()) : sceneNamesBefore(adapter.getChat().length);
+    return pickBondsFor(state, { present, recentText, latestNames: lastBondsNames() });
+}
+
+// The names from the last Bonds block before `beforeSeq` that still count for
+// the next turn: lines that changed something, or were skipped because the
+// story could not see that character (movedBondNames).
+function lastBondsNames(beforeSeq = Infinity) {
+    const entries = stateStore.activeEntries("bonds").filter(e => !e.missing && e.seq < beforeSeq);
     const last = entries[entries.length - 1];
-    const latestNames = (last && last.parsed && last.parsed.people || []).map(p => p.name);
-    return pickBondsFor(state, { present, recentText, latestNames });
+    if (!last || !last.parsed) return [];
+    return movedBondNames(stateStore.getStateAt("bonds", last.seq - 0.5), last.parsed, last.facts);
 }
 
 /**
@@ -945,15 +1222,23 @@ export function blocksBeginRead(index, { force = false } = {}) {
     const swipe = typeof msg.swipe_id === "number" ? msg.swipe_id : 0;
     const text = swipeText(msg, swipe);
     if (text == null) return null;
-    // A reply that wrote every routed block itself needs no read.
-    const needed = ids.filter(id => !STAT_MODULE_DEFS[id].parse(text));
+    // A reply that wrote every routed block itself needs no read. A custom
+    // block on "Every few replies" is read only when it is due (plan 023).
+    const needed = ids.filter(id => !statsModuleParses(id, text) && (id in BLOCK_ROUTE_TAGS || force || customDueAfterReply(id)));
     if (!needed.length) return null;
     const key = st.uid + ":" + swipe;
     if (pendingBlocks.has(key)) return null;
-    if (!force && needed.every(id => stateStore.getEntryFor(id, st.uid, swipe))) return null;
+    if (!force && needed.every(id => blockReadFiled(id, st.uid, swipe))) return null;
     pendingBlocks.add(key);
     stateChangedHook();
     return { index, uid: st.uid, swipe, seq: st.seq, text, hash: hashText(text), key, chatId: getContext()?.chatId, ids: needed };
+}
+
+// Was this block already read for this reply's swipe?
+function blockReadFiled(id, uid, swipe) {
+    if (id in BLOCK_ROUTE_TAGS) return Boolean(stateStore.getEntryFor(id, uid, swipe));
+    const e = stateStore.getEntryFor("custom", uid, swipe);
+    return Boolean(e && e.source === "sidemodel" && e.facts && Array.isArray(e.facts.read) && e.facts.read.includes(id));
 }
 
 /** Is this reply's blocks read running now (for its card)? */
@@ -975,11 +1260,16 @@ export function blocksReadNotes(token, exchangeText = "") {
     const sheet = token.ids.includes("sheet") ? stateStore.getStateAt("sheet", token.seq - 0.5) : null;
     let bondsText = "";
     if (bonds && Object.keys(bonds.people || {}).length) {
-        const present = worldHasState() ? presentCast(getWorldState()).flatMap(c => [c.name, ...(c.aliases || [])]) : [];
+        const present = worldHasState() ? scenePeople(getWorldState()) : sceneNamesBefore(token.index + 1);
         bondsText = renderBondsNotes(bonds, pickBondsFor(bonds, { present, recentText: exchangeText }));
     }
     const sheetText = sheet ? renderSheetNotes(sheet) : "";
-    return sub(renderWorkerNotes({ bonds: bondsText, sheet: sheetText }));
+    // Plan 023: custom blocks that carry forward get their values from before
+    // the reply, as <Name_Now> / <Last_Name>, whichever memory they use for
+    // the story (Chomusuke never reads the old replies' blocks).
+    const custom = customBlocks().filter(b => token.ids.includes(b.id) && b.memory !== "fresh");
+    const extra = custom.length ? customInfoSections(stateStore.getStateAt("custom", token.seq - 0.5), custom.map(b => ({ ...b, memory: "info" }))) : [];
+    return sub(renderWorkerNotes({ bonds: bondsText, sheet: sheetText, extra }) + knownNamesForReader());
 }
 
 /**
@@ -997,14 +1287,34 @@ export function blocksFinishRead(token, raw) {
     }
     const cleaned = cleanWorkerAnswer(raw);
     const found = [];
+    // Plan 023: custom blocks go in ONE entry with what the reply wrote itself
+    // (the store keeps one per reply and swipe): the reply, a mark, the answer.
+    const customIds = token.ids.filter(id => !(id in BLOCK_ROUTE_TAGS));
+    let unchanged = 0;
+    if (customIds.length) {
+        const blocks = customBlocks().filter(b => customIds.includes(b.id));
+        const answer = blocks.map(b => blockTextIn(cleaned, b.tag)).filter(Boolean).join("\n");
+        const got = answer ? parseCustomBlocks(answer, blocks) : null;
+        const missing = customIds.filter(id => !(got && got.blocks[id]));
+        found.push(...customIds.filter(id => !missing.includes(id)));
+        // Left out on purpose: "Only when it changes".
+        unchanged = blocks.filter(b => missing.includes(b.id) && b.when === "changes").length;
+        const joined = joinCustomRead(token.text, answer);
+        stateStore.recordMessage(at, {
+            source: "sidemodel", expect: true, moduleIds: ["custom"], swipe: token.swipe,
+            parsed: customModule.parse(joined), raw: joined, facts: { custom: { read: customIds, missing } }
+        });
+    }
     for (const id of token.ids) {
+        if (!(id in BLOCK_ROUTE_TAGS)) continue;
         const block = blockTextIn(cleaned, BLOCK_ROUTE_TAGS[id]);
         const parsed = block ? STAT_MODULE_DEFS[id].parse(block) : null;
         if (parsed) found.push(id);
-        stateStore.recordMessage(at, { source: "sidemodel", expect: true, moduleIds: [id], swipe: token.swipe, parsed: parsed || null, raw: block });
+        const facts = id === "bonds" && parsed ? bondsFactsFor(at, parsed) : undefined;
+        stateStore.recordMessage(at, { source: "sidemodel", expect: true, moduleIds: [id], swipe: token.swipe, parsed: parsed || null, raw: block, ...(facts ? { facts: { bonds: facts } } : {}) });
     }
     stateChangedHook();
-    return { ok: found.length > 0, dropped: false, found };
+    return { ok: found.length + unchanged > 0, dropped: false, found };
 }
 
 /** Gives up a claimed read without filing anything. */
@@ -1038,7 +1348,33 @@ export function blocksCardTextAt(msgIndex) {
         else if (e && e.source === "sidemodel" && !e.missing && body) out[tag] = { id, status: "ok", body };
         else if (e && e.source === "sidemodel" && e.missing) out[tag] = { id, status: "missing", body: "" };
     }
+    // Plan 023: custom blocks set to Chomusuke. Its answer sits after the
+    // reply in the entry's raw text. On the latest reply, a block Chomusuke
+    // can't write (off, no connection) says so.
+    const ce = stateStore.getEntryFor("custom", uid, swipe);
+    const read = ce && ce.source === "sidemodel" && ce.facts && Array.isArray(ce.facts.read) ? ce.facts : null;
+    const answer = read ? customReadPart(ce.raw) : "";
+    const latest = isLatestReply(msgIndex);
+    for (const b of customBlocksOn()) {
+        if (b.writer !== "chomusuke" || parseCustomBlocks(text, [b])) continue;
+        const block = answer ? blockTextIn(answer, b.tag) : "";
+        const body = block.replace(new RegExp(`^\\s*<${b.tag}\\b[^>]*>\\s*`, "i"), "").replace(new RegExp(`\\s*<\\/${b.tag}\\s*>\\s*$`, "i"), "").trim();
+        if (pending && customViaChomusuke(b.id)) out[b.tag] = { id: b.id, status: "pending", body };
+        else if (read && read.read.includes(b.id) && body) out[b.tag] = { id: b.id, status: "ok", body };
+        else if (read && read.read.includes(b.id)) out[b.tag] = { id: b.id, status: b.when === "changes" ? "unchanged" : "missing", body: "" };
+        else if (latest && !chomusukeReady()) out[b.tag] = { id: b.id, status: "unavailable", body: "" };
+    }
     return out;
+}
+
+// The last reply in the chat (the one a block not written yet belongs to).
+function isLatestReply(msgIndex) {
+    const chat = adapter.getChat();
+    for (let i = chat.length - 1; i >= 0; i--) {
+        const m = chat[i];
+        if (m && !m.is_user && !m.is_system) return i === msgIndex;
+    }
+    return false;
 }
 
 // ── Bonds / Sheet editor (plan 008) ──────────────────────────────────────
@@ -1063,8 +1399,9 @@ export function statsEdit(moduleId, parsed) {
  * @param {{ recentText?: string }} opts  the last few messages, blocks removed
  */
 export function statsPromptParts({ recentText = "" } = {}) {
-    const out = { bonds: "", sheet: "", chatter: "", tracker: "" };
+    const out = { bonds: "", sheet: "", chatter: "", tracker: "", names: "", custom: [] };
     if (!adapter.getMeta()) return out;
+    out.names = knownNamesBlock();
     if (statBlockOn("bonds") && stateStore.hasState("bonds")) {
         const state = stateStore.getState("bonds");
         out.bonds = renderBondsNotes(state, bondsInPlay(state, recentText));
@@ -1072,7 +1409,106 @@ export function statsPromptParts({ recentText = "" } = {}) {
     if (statBlockOn("sheet") && stateStore.hasState("sheet")) out.sheet = renderSheetNotes(stateStore.getState("sheet"));
     if (statBlockOn("chatter") && stateStore.hasState("chatter")) out.chatter = stateStore.getState("chatter").text || "";
     if (statBlockOn("tracker") && stateStore.hasState("tracker")) out.tracker = stateStore.getState("tracker").text || "";
+    if (customInPlay() && stateStore.hasState("custom")) out.custom = customInfoSections(stateStore.getState("custom"), customBlocksOn());
     return out;
+}
+
+// ── Custom blocks (plan 023) ─────────────────────────────────────────────
+// Kept like the other blocks. Each block decides on its own what the story
+// sees of its old copies (memory), when it is asked for (when), and who
+// writes it (writer, phase 3).
+
+/** Every custom block the user made, settings filled in. */
+export function customBlocks() {
+    const list = (localProfile && localProfile.blockStack && localProfile.blockStack.custom) || [];
+    return list.map(normalizeCustomBlock);
+}
+
+/** The custom blocks in the stack, in stack order. */
+export function customBlocksOn() {
+    const order = (localProfile && localProfile.blockStack && localProfile.blockStack.order) || [];
+    const all = customBlocks();
+    return order.map(id => all.find(b => b.id === id)).filter(Boolean);
+}
+
+function customInPlay() {
+    return Boolean(adapter.getMeta()) && customBlocksOn().length > 0;
+}
+
+function customRecord(index) {
+    const msg = adapter.getChat()[index];
+    if (!msg || msg.is_user || msg.is_system) return;
+    // Phase 3: what Chomusuke wrote for this reply stays, read again together
+    // with the reply's new text (an edit, a continue).
+    const uid = msg.extra?.megumin_uid;
+    const swipe = typeof msg.swipe_id === "number" ? msg.swipe_id : 0;
+    const e = uid ? stateStore.getEntryFor("custom", uid, swipe) : null;
+    if (e && e.source === "sidemodel") {
+        const joined = joinCustomRead(String(msg.mes || ""), customReadPart(e.raw));
+        stateStore.recordMessage(index, {
+            source: "sidemodel", expect: true, moduleIds: ["custom"],
+            parsed: customModule.parse(joined), raw: joined, ...(e.facts ? { facts: { custom: e.facts } } : {})
+        });
+        return;
+    }
+    stateStore.recordMessage(index, { moduleIds: ["custom"] });
+}
+
+// Replies since the block's last copy on file, or null when it has none.
+function customRepliesSince(id) {
+    const entries = stateStore.activeEntries("custom").filter(e => e.uid && !e.missing && e.parsed && e.parsed.blocks && e.parsed.blocks[id]);
+    const last = entries[entries.length - 1];
+    if (!last) return null;
+    const chat = adapter.getChat();
+    const at = chat.findIndex(m => m?.extra?.megumin_uid === last.uid);
+    if (at < 0) return null;
+    let n = 0;
+    for (let i = at + 1; i < chat.length; i++) if (chat[i] && !chat[i].is_user && !chat[i].is_system) n++;
+    return n;
+}
+
+/** Is the story model asked for this custom block this turn? */
+export function customBlockDueNow(id) {
+    const b = customBlocks().find(x => x.id === id);
+    if (!b) return false;
+    let since = null;
+    try { since = adapter.getMeta() ? customRepliesSince(id) : null; } catch (e) { since = null; }
+    return customBlockDue(b, since);
+}
+
+// Is Chomusuke due to write this custom block for the reply just in?
+function customDueAfterReply(id) {
+    const b = customBlocks().find(x => x.id === id);
+    if (!b) return false;
+    let since = null;
+    try { since = customRepliesSince(id); } catch (e) { since = null; }
+    return customBlockDue(b, since, { afterReply: true });
+}
+
+/**
+ * Which custom block tags come out of the replies the story reads, and which
+ * stay ("Stays in the chat"). Every custom block counts, in the stack or not.
+ */
+export function customHiding() {
+    const all = customBlocks();
+    return { hide: customTagsToHide(all), keep: customTagsToKeep(all) };
+}
+
+/** One custom block's state now (for the card and the editor), or null. */
+export function customBlockState(id) {
+    if (!adapter.getMeta() || !stateStore.hasState("custom")) return null;
+    return stateStore.getState("custom").blocks[id] || null;
+}
+
+/**
+ * The user's own change to one custom block (phase 4): fields to set or clear,
+ * or the whole text. Kept as a user entry, never undone by swipes.
+ * @param {string} id
+ * @param {{ kind: "fields", fields: object[] } | { kind: "text", text?: string, clear?: boolean }} part
+ */
+export function customEdit(id, part) {
+    if (!adapter.getMeta() || !id || !part) return null;
+    return stateStore.addUserEntry("custom", { kind: "delta", blocks: { [id]: part } });
 }
 
 // Manual mode: the state is read, never written by replies.
@@ -1086,6 +1522,10 @@ function repliesUpdate() {
  */
 export function stateOnMessageReceived(messageId, type, { skipSideRead = false } = {}) {
     statsOnReceived(messageId);
+    if (customInPlay()) {
+        stateStore.reconcile();
+        customRecord(typeof messageId === "number" ? messageId : adapter.getChat().length - 1);
+    }
     notebookOnReceived(messageId);
     if (!repliesUpdate() || !adapter.getMeta()) return false;
     const chat = adapter.getChat();
@@ -1121,6 +1561,7 @@ export function stateOnSwiped(messageId) {
     const index = typeof messageId === "number" ? messageId : chat.length - 1;
     if (statsInPlay()) stateStore.onSwiped(index, { moduleIds: STAT_MODULES });
     if (notebookInPlay()) stateStore.onSwiped(index, { moduleIds: ["notebook"] });
+    if (customInPlay()) stateStore.onSwiped(index, { moduleIds: ["custom"] });
     if (!inPlay()) return false;
     if (!repliesUpdate()) {
         stateStore.reconcile();
@@ -1140,6 +1581,7 @@ export function stateOnSwipeDeleted(data) {
 export function stateOnEdited(messageId) {
     if (statsInPlay()) statsRecord(messageId);
     if (notebookInPlay()) notebookRecord(messageId);
+    if (customInPlay()) customRecord(messageId);
     if (!repliesUpdate() || !adapter.getMeta()) return false;
     const msg = adapter.getChat()[messageId];
     if (!msg || msg.is_user) return false;
@@ -1171,6 +1613,12 @@ export function stateOnDeleted() {
 export function stateOnChatLoaded() {
     statsOnChatLoaded();
     if (notebookInPlay()) stateStore.reparseStale("notebook");
+    if (customInPlay()) {
+        stateStore.reparseStale("custom");
+        // Once per chat: a block made after the chat started finds the copies
+        // already written in it.
+        if (!stateStore.root()?.imported?.custom) stateStore.importFromChat("custom");
+    }
     if (!inPlay()) return false;
     if (worldEnabled()) stateStore.stampAll();
     stateStore.reconcile();

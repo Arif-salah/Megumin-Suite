@@ -14,12 +14,13 @@
 import { Popup, POPUP_TYPE, substituteParams } from "../../st.js";
 import {
     getWorldState, worldEdit, worldHistory, worldSetEntryDisabled, worldRemoveUserEntry,
-    worldImportRange, worldChatOpen, stateStore, notebookEnabled
+    worldImportRange, worldChatOpen, stateStore, notebookEnabled, worldWritesFull, worldHidesSecrets
 } from "../../state/index.js";
-import { presentCast, fieldLabel, LIST_LIMITS } from "../../state/modules/world/model.js";
-import { PC_FIELDS, NPC_FIELDS } from "../../state/modules/world/render.js";
+import { presentCast, fieldLabel } from "../../state/modules/world/model.js";
+import { PC_FIELDS, NPC_FIELDS, currentWorldLimits } from "../../state/modules/world/render.js";
 import { PC } from "../../state/modules/world/parse.js";
 import { meguminScheduleBlocksRefresh } from "../blocks/chat.js";
+import { confirmPopup } from "../../ui/controls.js";
 
 const esc = v => String(v == null ? "" : v)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -65,7 +66,7 @@ function renderStateView(state) {
                 <b>${esc(c.name)}</b>${(c.aliases || []).map(a => `<span class="meg-wsed-tag">"${esc(a)}"</span>`).join("")}
                 <select class="ps-modern-input meg-wsed-status" data-who="${esc(c.name)}">
                     <option value="in" ${c.present ? "selected" : ""}>In the scene</option>
-                    <option value="away" ${c.present ? "" : "selected"}>Away</option>
+                    <option value="away" ${c.present ? "" : "selected"}>Left the scene</option>
                 </select>
                 <button type="button" class="meg-wsed-mini meg-wsed-forget" data-who="${esc(c.name)}" title="Forget this character entirely"><i class="fa-solid fa-trash"></i></button>
             </div>
@@ -77,7 +78,7 @@ function renderStateView(state) {
     const list = l => `
         <div class="meg-wsed-list">
             <div class="meg-wsed-sub"><i class="fa-solid ${l.icon}"></i> ${l.title}
-                <span class="meg-wsed-tag" title="When a reply leaves more than ${LIST_LIMITS[l.key]}, the oldest one is removed.">at most ${LIST_LIMITS[l.key]}</span></div>
+                ${worldWritesFull() ? "" : `<span class="meg-wsed-tag" title="When a reply leaves more than ${currentWorldLimits()[l.key]}, the oldest one is removed. Change the number in the World State tab.">at most ${currentWorldLimits()[l.key]}</span>`}</div>
             ${(state[l.key] || []).map(item => `
                 <div class="meg-wsed-listrow">
                     ${input({ kind: "listitem", list: l.key }, item)}
@@ -115,14 +116,14 @@ function renderStateView(state) {
 
         ${away.length ? `
         <div class="meg-wsed-section">
-            <div class="meg-wsed-title"><i class="fa-solid fa-person-walking-arrow-right"></i> Away <span class="meg-wsed-tag">${away.length}</span></div>
+            <div class="meg-wsed-title"><i class="fa-solid fa-person-walking-arrow-right"></i> Off-screen <span class="meg-wsed-tag">${away.length}</span></div>
             <div class="meg-wsed-hint">Remembered with their last known details, so they come back as they left.</div>
             ${away.map(person).join("")}
         </div>` : ""}
 
         <div class="meg-wsed-section">
             <div class="meg-wsed-title"><i class="fa-solid fa-book-open"></i> Story threads</div>
-            ${LISTS.filter(l => !(l.key === "seeds" && notebookEnabled())).map(list).join("")}
+            ${LISTS.filter(l => !(l.key === "seeds" && worldHidesSecrets())).map(list).join("")}
         </div>`;
 }
 
@@ -176,7 +177,7 @@ function renderHistoryView(showAllSwipes) {
                     <input type="number" min="0" class="ps-modern-input meg-wsed-to" placeholder="to #" />
                     <button type="button" class="menu_button meg-wsed-doimport"><i class="fa-solid fa-file-import"></i> Read</button>
                 </span>
-                <button type="button" class="menu_button meg-wsed-reset" data-armed="0"><i class="fa-solid fa-eraser"></i> Reset World State</button>
+                <button type="button" class="menu_button meg-wsed-reset"><i class="fa-solid fa-eraser"></i> Reset World State</button>
             </div>
             <div class="meg-wsed-hint">Re-read picks up World blocks from those messages again (e.g. after the extension was switched off). Reset clears everything; the next reply describes the scene from scratch.</div>
         </div>
@@ -250,14 +251,10 @@ export async function openWorldEditor({ view = "state" } = {}) {
             commit([$(this).val() === "in" ? { type: "enter", who } : { type: "leave", who, where: "" }]);
         });
 
-        $root.find(".meg-wsed-forget").on("click", function () {
-            const $b = $(this);
-            if ($b.attr("data-armed") !== "1") {
-                $b.attr("data-armed", "1").addClass("armed").html(`<i class="fa-solid fa-trash"></i> Forget?`);
-                setTimeout(() => $b.attr("data-armed", "0").removeClass("armed").html(`<i class="fa-solid fa-trash"></i>`), 3000);
-                return;
-            }
-            commit([{ type: "forget", who: this.dataset.who }]);
+        $root.find(".meg-wsed-forget").on("click", async function () {
+            const who = this.dataset.who;
+            if (!(await confirmPopup(`Forget ${esc(who)}?`, "They are removed from World State completely. To take them out of the scene but keep them, set them to Left the scene instead.", { ok: "Forget them" }))) return;
+            commit([{ type: "forget", who }]);
         });
 
         $root.find(".meg-wsed-addchar").on("keydown", function (e) {
@@ -303,13 +300,8 @@ export async function openWorldEditor({ view = "state" } = {}) {
             meguminScheduleBlocksRefresh();
             draw();
         });
-        $root.find(".meg-wsed-reset").on("click", function () {
-            const $b = $(this);
-            if ($b.attr("data-armed") !== "1") {
-                $b.attr("data-armed", "1").addClass("armed").html(`<i class="fa-solid fa-triangle-exclamation"></i> Click again to clear this chat's World State`);
-                setTimeout(() => { if ($b.closest("body").length) draw(); }, 4000);
-                return;
-            }
+        $root.find(".meg-wsed-reset").on("click", async function () {
+            if (!(await confirmPopup("Clear this chat's World State?", "The next reply describes the scene from scratch. Other chats are not touched.", { ok: "Clear it" }))) return;
             stateStore.reset("world");
             meguminScheduleBlocksRefresh();
             toastr.info("World State cleared for this chat.", "Megumin Suite");

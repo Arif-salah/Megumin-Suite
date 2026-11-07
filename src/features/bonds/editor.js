@@ -14,6 +14,7 @@ import { statsState, statsEdit, statBlockOn } from "../../state/index.js";
 import { parseStatValue, statKey } from "../../state/modules/stats/parse.js";
 import { meguminStatFields } from "../blocks/registry.js";
 import { meguminScheduleBlocksRefresh } from "../blocks/chat.js";
+import { confirmPopup } from "../../ui/controls.js";
 
 const esc = v => String(v == null ? "" : v)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -87,8 +88,8 @@ function renderSheetView() {
 
 // ── Popup ────────────────────────────────────────────────────────────────
 
-/** One edited value as a field change; "" clears it. A meter keeps its max. */
-function fieldChange(d, raw) {
+/** One edited value as a field change; "" clears it. A meter keeps its max. Also used by custom blocks (plan 023). */
+export function fieldChange(d, raw) {
     if (!raw) return { key: d.key, label: d.label, remove: true };
     const v = parseStatValue(raw);
     if (!v) return null;
@@ -163,14 +164,10 @@ export async function openStatsEditor({ view = "bonds" } = {}) {
             commit("bonds", { kind: "delta", people: [{ name, fields }] });
         });
 
-        $root.find(".meg-sted-forget").on("click", function () {
-            const $b = $(this);
-            if ($b.attr("data-armed") !== "1") {
-                $b.attr("data-armed", "1").addClass("armed").html(`<i class="fa-solid fa-trash"></i> Forget?`);
-                setTimeout(() => $b.attr("data-armed", "0").removeClass("armed").html(`<i class="fa-solid fa-trash"></i>`), 3000);
-                return;
-            }
-            commit("bonds", { kind: "delta", people: [], forget: [this.dataset.who] });
+        $root.find(".meg-sted-forget").on("click", async function () {
+            const who = this.dataset.who;
+            if (!(await confirmPopup(`Forget ${esc(who)}'s bonds?`, "Their bonds are removed from this chat. If the story names them again, they start over.", { ok: "Forget" }))) return;
+            commit("bonds", { kind: "delta", people: [], forget: [who] });
         });
 
         $root.find(".meg-sted-search").on("input", function () {

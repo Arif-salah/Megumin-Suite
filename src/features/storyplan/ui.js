@@ -11,6 +11,7 @@ import { setActiveStoryPlanRequest } from "../../core/activeRequests.js";
 import { saveProfileToMemory, saveProfileDebounced } from "../../core/profile.js";
 import { DEFAULT_PROMPTS } from "../../prompts/index.js";
 import { renderPromptEditor } from "../../ui/promptEditor.js";
+import { chomusukeJobLine } from "../../ui/chomusukeLine.js";
 import { cleanAIOutput, getChatForStoryDirector } from "../../engine/chatText.js";
 import { escapeHtmlAttr } from "../../utils/html.js";
 import { runWithChomusuke } from "../../engine/tasks.js";
@@ -214,7 +215,7 @@ export function renderStoryPlanner(c) {
             <!-- UNRESTRICTED CONTENT TOGGLE -->
             <div class="mtab-toggle-row ${sp.unrestrictedContent ? 'active' : ''}" id="sd_unrestricted_card">
                 <div class="toggle-info">
-                    <div class="toggle-label"><i class="fa-solid fa-lock-open" style="color:#ef4444;"></i> Unrestricted Content</div>
+                    <div class="toggle-label"><i class="fa-solid fa-lock-open" style="color:var(--c-danger, #ef4444);"></i> Unrestricted Content</div>
                     <div class="toggle-desc">Inject a content policy override into the story context. Enables darker, more explicit narrative directions without AI refusals.</div>
                 </div>
                 <div class="ps-switch"></div>
@@ -249,12 +250,7 @@ export function renderStoryPlanner(c) {
             <!-- ENGINE SETTINGS -->
             <div class="mtab-panel">
                 <div class="mtab-panel-title gold"><i class="fa-solid fa-gears"></i> Engine Settings</div>
-                <div class="mtab-setting-row">
-                    <div class="set-info">
-                        <div class="set-label"><i class="fa-solid fa-cat" style="color: #f43f5e; margin-right: 6px;"></i> Background Worker</div>
-                        <div class="set-desc">Managed by the <b>Chomusuke</b> tab. Configure Chomusuke to offload story directive evolution to a dedicated worker LLM.</div>
-                    </div>
-                </div>
+                ${chomusukeJobLine("storyPlan", "the story direction updates")}
                 <div class="mtab-setting-row">
                     <div class="set-info">
                         <div class="set-label">Context Limit</div>

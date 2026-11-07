@@ -1,5 +1,6 @@
 // ─────────────────────────────────────────────────────────────────────────────
-// Global tab sync — copying one tab's settings into every stored profile.
+// Tab scope ("This tab: Every character") — copying one tab's settings into
+// every stored profile.
 //
 // Data and pure logic only. The three functions that read the tab currently on
 // screen (the toggle button, its label, and the post-save propagator) are jQuery
@@ -12,50 +13,22 @@ import { extensionName } from "./constants.js";
 import { localProfile, _loadedProfileKey } from "./state.js";
 import { getCharacterKey } from "./keys.js";
 import { meguminDiffPrompts } from "../prompts/storage.js";
+import { TAB_SYNC_KEYS, TABS_ALREADY_GLOBAL, STORY_CONFIG_HOST_TAB, syncKeysFor } from "./syncKeys.js";
 
-// Which profile keys each tab owns. Keyed by tab TITLE, not by position: the
-// numeric map broke silently the moment a tab was inserted — every tab after it
-// synced the previous tab's keys, and nothing said so.
-export const TAB_SYNC_KEYS = {
-    // enhancedDialogue belongs here because its switch is drawn on the engine
-    // cards, which are this tab. Leaving it out did not look like a sync bug from
-    // the outside — it looked like the switch was not saving at all: it stuck on
-    // the profile you set it on and was off everywhere else, which is what a
-    // setting that failed to write looks like to the reader.
-    "Preset & Thinking": ["mode", "model", "cotEnabled", "thinkEffort", "customThinkEffort", "thinkingV2", "storyConfig", "enhancedDialogue"],
-    "Persona": ["personality", "toggles"],
-    "Writing Style": ["activeStyleId", "aiRule", "customStyles", "dnRatio"],
-    "Language & Add-ons": ["addons", "blocks", "userLanguage", "userPronouns", "onomatopoeia", "v9Limits"],
-    "Blocks": ["blockStack", "statBlocks", "blocks", "hideBlocksFromAI"],
-    "Story Director": ["storyPlan"],
-    "The Notebook": ["notebook"],
-    "Banned Phrases": ["banList", "banListBuiltIn", "banListShort", "banListBackend", "banListCustomPromptsEnabled", "banListCustomPrompts"],
-    "Images": ["imageGen"],
-    "NPC Bank": ["npcBank"],
-    "Memory": ["memoryCore"]
-};
-
-// These are stored globally already, so there is nothing per-character to keep
-// in step and the toggle has no meaning on them. Chomusuke (plan 018) is one
-// setup in extension_settings, not a copy per profile.
-export const TABS_ALREADY_GLOBAL = ["Side Panel", "Settings", "Chomusuke"];
+// Which keys each tab owns, which tabs are always shared: core/syncKeys.js
+// (pure, keyed by tab id since plan 020). Re-exported for older imports.
+export { TAB_SYNC_KEYS, TABS_ALREADY_GLOBAL };
 
 // ── Story Config's own opt-out ───────────────────────────────────────────────
 //
 // Story Config's fields are drawn inside the Preset & Thinking tab, so they ride on
-// that tab's Global switch. That bundles two different decisions: "every
-// character uses this engine" and "every character is the same genre, POV and
-// pace". The first is setup and people do want it everywhere; the second is the
-// story, and a horror chat and a slice-of-life chat should not share it.
+// that tab's scope. That bundles two different decisions: "every character uses
+// this engine" and "every character is the same genre, POV and pace". The first
+// is setup and people do want it everywhere; the second is the story, and a
+// horror chat and a slice-of-life chat should not share it.
 //
-// Default is ON, which is exactly the behaviour before this existed — turning the
-// tab global still carries Story Config unless the reader says otherwise.
-//
-// Stored as its own setting rather than an entry in globalSyncTabs: that map is
-// keyed by tab title, and migrateRenamedTabs() rewrites a "Story Config" key
-// there into "Writing Style" (the tab was split once). A flag filed under that
-// name would be silently renamed away on the next load.
-const STORY_CONFIG_HOST_TAB = "Preset & Thinking";
+// Default is ON (Story Config travels), which is exactly the behaviour before
+// this existed. Stored as its own setting rather than an entry in globalSyncTabs.
 
 export function meguminStoryConfigSyncs() {
     const store = extension_settings[extensionName];
@@ -69,24 +42,26 @@ export function meguminSetStoryConfigSyncs(on) {
     saveSettingsDebounced();
 }
 
-// Whether the tab Story Config lives on is itself set to global. With it off,
-// nothing broadcasts at all and the switch above has nothing to act on — the UI
-// uses this to say so rather than offering a control that does nothing.
+// Whether the tab Story Config lives on is itself set to every character. With
+// it off, nothing is copied at all and the opt-out has nothing to act on — the
+// UI uses this to say so rather than offering a control that does nothing.
 export function meguminStoryConfigHostSynced() {
     return meguminIsTabSynced(STORY_CONFIG_HOST_TAB);
 }
 
-// The keys a tab actually broadcasts, after per-key opt-outs. TAB_SYNC_KEYS stays
-// the plain declaration of what a tab owns; this is what the broadcast uses.
-export function meguminTabSyncKeys(title) {
-    const keys = TAB_SYNC_KEYS[title];
-    if (!keys) return null;
-    if (title === STORY_CONFIG_HOST_TAB && !meguminStoryConfigSyncs()) {
-        return keys.filter(k => k !== "storyConfig");
-    }
-    return keys;
+// The keys a tab actually copies, after per-key opt-outs.
+export function meguminTabSyncKeys(tabId) {
+    return syncKeysFor(tabId, meguminStoryConfigSyncs());
 }
 
+// What "this one / every one" is about in the words the user sees: settings
+// are kept per character, or per chat in "Per Chat" save mode (core/keys.js).
+export function scopeNoun() {
+    const gs = (extension_settings[extensionName] || {}).globalSettings || {};
+    return gs.saveMode === "chat" ? "chat" : "character";
+}
+
+// { tabId: true } for the tabs set to every character.
 export function meguminGlobalSyncMap() {
     if (!extension_settings[extensionName].globalSyncTabs) {
         extension_settings[extensionName].globalSyncTabs = {};
@@ -94,14 +69,14 @@ export function meguminGlobalSyncMap() {
     return extension_settings[extensionName].globalSyncTabs;
 }
 
-export function meguminIsTabSynced(title) {
-    return Boolean(title && meguminGlobalSyncMap()[title]);
+export function meguminIsTabSynced(tabId) {
+    return Boolean(tabId && meguminGlobalSyncMap()[tabId]);
 }
 
 // Copies this tab's keys from the profile on screen into every stored profile.
 // Returns false when it declined, so callers can stay quiet about it.
-export function applyTabKeysToAllProfiles(title) {
-    const keys = meguminTabSyncKeys(title);
+export function applyTabKeysToAllProfiles(tabId) {
+    const keys = meguminTabSyncKeys(tabId);
     if (!keys || !keys.length) return false;
 
     // This writes localProfile into EVERY stored profile, so a stale localProfile

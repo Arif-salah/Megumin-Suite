@@ -16,10 +16,13 @@ import { saveProfileToMemory } from "../../core/profile.js";
 import { meguminScheduleBlocksRefresh } from "../blocks/chat.js";
 import {
     notebookEnabled, notebookComesWithEngine, notebookCurrentPhase, notebookState,
-    notebookEdit, notebookTurnLabel
+    notebookEdit, notebookTurnLabel, notebookCap, notebookNoteCap
 } from "../../state/index.js";
-import { liveTruths, pastTruths, LIVE_CAP } from "../../state/modules/notebook/model.js";
+import { liveTruths, filledLiveTruths, isFilled, pastTruths, MAX_LIVE_CAP, clampLiveCap, peekNextId } from "../../state/modules/notebook/model.js";
+import { truthCountWords } from "../../state/modules/notebook/render.js";
+import { fireRefreshHook, REFRESH } from "../../core/refreshHooks.js";
 import { splitNames } from "../../state/modules/notebook/parse.js";
+import { confirmPopup, switchRow } from "../../ui/controls.js";
 
 const esc = v => String(v == null ? "" : v)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -68,13 +71,14 @@ function liveCard(t, isOpen) {
         <div class="meg-nb-truth nbx-row" data-id="${esc(t.id)}">
             <div class="meg-nb-truth-head">
                 <b>${esc(t.id)}</b>
+                ${isFilled(t) ? "" : `<span class="meg-nb-draft" title="Not given to the story until the Truth box is filled in">new, write it below</span>`}
                 <span class="meg-nb-turn">written ${esc(where(t.createdSeq))}</span>
                 <span class="meg-nb-turn">${t.clues.length} clue${t.clues.length === 1 ? "" : "s"}</span>
                 ${isOpen ? `
                 <span class="meg-nb-actions">
                     <button type="button" class="menu_button meg-nb-hide"><i class="fa-solid fa-eye-slash"></i> Hide</button>
                     <button type="button" class="menu_button meg-nb-out" title="The truth is out: it leaves the story's notebook and joins Past"><i class="fa-solid fa-flag-checkered"></i> Mark revealed</button>
-                    <button type="button" class="menu_button meg-nb-del" title="Delete this truth. Its id is never used again."><i class="fa-solid fa-trash"></i> Delete</button>
+                    <button type="button" class="menu_button meg-nb-del" title="Delete this truth. The next new truth takes its number."><i class="fa-solid fa-trash"></i> Delete</button>
                 </span>` : ""}
             </div>
             <div class="meg-nb-spoiler${isOpen ? "" : " is-hidden"}">
@@ -114,11 +118,15 @@ function pastItem(t) {
 function notebookSections(state, chatId, on) {
     const live = liveTruths(state).sort((a, b) => a.createdSeq - b.createdSeq);
     const past = pastTruths(state).sort((a, b) => (a.revealedSeq - b.revealedSeq) || (a.createdSeq - b.createdSeq));
-    if (!live.length && !past.length) return "";
+    if (!live.length && !past.length) return `
+        <section class="nbx-section">
+            <h3 class="nbx-heading purple"><button type="button" class="menu_button meg-nb-add" title="Add an empty truth to fill in yourself"><i class="fa-solid fa-plus"></i> Add a truth</button><i class="fa-solid fa-mask"></i> Active</h3>
+            <div class="meg-nb-none">No truths yet. The next reply writes them, or add one yourself.</div>
+        </section>`;
     const kept = on ? "" : `<div class="meg-nb-none">The notebook is off, so these are kept but not handed to the story.</div>`;
     return `
         <section class="nbx-section">
-            <h3 class="nbx-heading purple"><i class="fa-solid fa-mask"></i> Active <span class="meg-nb-count">${live.length} of ${LIVE_CAP} live</span></h3>
+            <h3 class="nbx-heading purple"><button type="button" class="menu_button meg-nb-add" title="Add an empty truth to fill in yourself"><i class="fa-solid fa-plus"></i> Add a truth</button><i class="fa-solid fa-mask"></i> Active <span class="meg-nb-count">${live.filter(isFilled).length} of ${notebookCap()} live</span></h3>
             ${kept}
             ${live.length ? `
             <p class="nbx-note warn"><i class="fa-solid fa-triangle-exclamation"></i> These are the truths the story is still hiding. Opening one spoils what the story is building toward.</p>
@@ -151,14 +159,14 @@ export function renderNotebookTab(c) {
     const phase = hasChat ? notebookCurrentPhase() : "off";
     const state = hasChat ? notebookState() : null;
     if (hasChat) at = notebookTurnLabel();
-    const live = state ? liveTruths(state).length : 0;
+    const live = state ? filledLiveTruths(state).length : 0;
     const past = state ? pastTruths(state).length : 0;
 
-    const status = !on && v11 ? "The notebook is off. V11's engine still talks about its notebook, so edit the engine in Dev Mode and take out the lines about it."
+    const status = !on && v11 ? "The notebook is off. V11's preset still talks about its notebook, so edit the preset in Dev Mode and take out the lines about it."
         : !on ? "The notebook is off."
         : !hasChat ? "Open a chat to see its notebook."
-        : phase === "setup" ? "The next reply writes the notebook: two or three hidden truths."
-        : `${live} of ${LIVE_CAP} truths are live in this chat${past ? `, ${past} came out` : ""}.`;
+        : phase === "setup" ? `The next reply writes the notebook: ${truthCountWords(notebookCap()).replace("truth", "hidden truth")}.`
+        : `${live} of ${notebookCap()} truths are live in this chat${past ? `, ${past} came out` : ""}.`;
 
     c.append(`
         <div class="nbx">
@@ -167,7 +175,7 @@ export function renderNotebookTab(c) {
                     <div class="mtab-header-icon" style="background: linear-gradient(135deg, #8b5cf6, #6d28d9);"><i class="fa-solid fa-book"></i></div>
                     <div>
                         <h2>The Notebook</h2>
-                        <p>The story decides a few hidden truths, keeps them from turn to turn, plants clues, and reveals them when the story is ready. World State stops asking for a Secret while this is on.</p>
+                        <p>The story decides a few hidden truths, keeps them from turn to turn, plants clues, and reveals them when the story is ready. While this is on, World State stops asking for Secrets and Seeds, unless you keep them below.</p>
                     </div>
                 </div>
                 <div class="mtab-toggle-row nbx-switch ${on ? "active" : ""}" id="nb_enable_card" title="${v11 ? "V11 is written with its notebook. Turning it off isn't recommended." : ""}">
@@ -181,6 +189,14 @@ export function renderNotebookTab(c) {
                 <span class="nbx-status-text"><i class="fa-solid fa-circle-info"></i> ${status}</span>
             </div>
 
+            <div class="nbx-keep"></div>
+
+            <div class="nbx-cap">
+                <label for="nb_cap"><b>How many truths the story keeps at once</b>
+                    <small>Default 3. More truths means more for the story to juggle and more to read every reply. Lowering it keeps the truths already in play; the story just adds none until fewer are live.</small></label>
+                <input type="number" id="nb_cap" class="ps-modern-input" min="1" max="${MAX_LIVE_CAP}" step="1" value="${notebookCap()}" />
+            </div>
+
             ${state ? notebookSections(state, chatId, on) : ""}
             </div>
         </div>
@@ -191,8 +207,8 @@ export function renderNotebookTab(c) {
             if (on) {
                 const popup = new Popup(
                     "<h3>Turn the notebook off for V11?</h3>" +
-                    "<p>This isn't recommended. V11's engine text talks about its notebook, so the story keeps expecting one.</p>" +
-                    "<p>If you turn it off, edit the V11 engine in Dev Mode too and take out the lines about the notebook.</p>",
+                    "<p>This isn't recommended. V11's preset text talks about its notebook, so the story keeps expecting one.</p>" +
+                    "<p>If you turn it off, edit the V11 preset in Dev Mode too and take out the lines about the notebook.</p>",
                     POPUP_TYPE.CONFIRM, "", { okButton: "Turn it off", cancelButton: "Keep it on" }
                 );
                 if (!(await popup.show())) return;
@@ -203,6 +219,29 @@ export function renderNotebookTab(c) {
         }
         saveProfileToMemory();
         meguminScheduleBlocksRefresh();
+        renderNotebookTab(c);
+    });
+    c.find(".nbx-keep").append(switchRow({
+        label: "Keep Secrets and Seeds in World State too",
+        desc: "Off (default): while the Notebook is on, World State stops asking for each character's Secret and for planted Seeds, because the Notebook keeps the hidden things. On: World State keeps them as well.",
+        on: Boolean(localProfile.notebook && localProfile.notebook.keepWorldSecrets),
+        onChange: v => {
+            localProfile.notebook = { ...(localProfile.notebook || {}), keepWorldSecrets: v };
+            saveProfileToMemory();
+            meguminScheduleBlocksRefresh();
+            fireRefreshHook(REFRESH.TOKEN_COUNT);
+        }
+    }));
+
+    c.find("#nb_cap").on("change", function () {
+        const n = clampLiveCap($(this).val());
+        $(this).val(n);
+        if (n === notebookCap()) return;
+        localProfile.notebook = { ...(localProfile.notebook || {}), maxTruths: n };
+        saveProfileToMemory();
+        notebookNoteCap();
+        meguminScheduleBlocksRefresh();
+        fireRefreshHook(REFRESH.TOKEN_COUNT);
         renderNotebookTab(c);
     });
     if (state) bindNotebook(c, state, chatId);
@@ -246,7 +285,7 @@ function bindNotebook(c, state, chatId) {
         } else if (raw !== (t[key] || "")) {
             fields[key] = raw;
         }
-        if (fields.truth === "") {
+        if (fields.truth === "" && isFilled(t)) {
             toastr.warning("A truth can't be empty. Delete it instead.", "Megumin Suite");
             $(this).val(t.truth);
             return;
@@ -263,6 +302,12 @@ function bindNotebook(c, state, chatId) {
         commit({ op: "edit", id: t.id, fields: { clues: t.clues.filter((_, j) => j !== i) } });
     });
 
+    c.find(".meg-nb-add").on("click", function () {
+        // Opens straight away: the user is writing it, there is nothing to spoil.
+        opened.add(`${chatId}|${peekNextId(state)}`);
+        commit({ op: "add" });
+    });
+
     c.find(".meg-nb-out").on("click", function () {
         const t = truthOf(this);
         if (t) commit({ op: "reveal", id: t.id });
@@ -271,24 +316,19 @@ function bindNotebook(c, state, chatId) {
     c.find(".meg-nb-restore").on("click", function () {
         const t = truthOf(this);
         if (!t) return;
-        if (liveTruths(state).length >= LIVE_CAP) {
-            toastr.warning(`${LIVE_CAP} truths are already live. Mark one revealed or delete one first.`, "Megumin Suite");
+        if (filledLiveTruths(state).length >= notebookCap()) {
+            toastr.warning(`${notebookCap()} truths are already live. Mark one revealed or delete one first, or raise the number above.`, "Megumin Suite");
             return;
         }
         commit({ op: "restore", id: t.id });
     });
 
-    // Delete asks twice: click once to arm, again within 3 s to delete.
-    c.find(".meg-nb-del").on("click", function () {
-        const $b = $(this);
-        if ($b.attr("data-armed") !== "1") {
-            $b.attr("data-armed", "1").addClass("armed").html(`<i class="fa-solid fa-trash"></i> Delete for good?`);
-            setTimeout(() => $b.attr("data-armed", "0").removeClass("armed").html(`<i class="fa-solid fa-trash"></i> Delete`), 3000);
-            return;
-        }
+    // Delete asks first, the same popup as every other delete (plan 020).
+    c.find(".meg-nb-del").on("click", async function () {
         const t = truthOf(this);
         if (!t) return;
+        if (!(await confirmPopup("Delete this truth for good?", "It leaves the notebook and the story stops keeping it. To take it out of the story but keep it, use Mark revealed instead.", { ok: "Delete" }))) return;
         opened.delete(`${chatId}|${t.id}`);
-        commit({ op: "forget", id: t.id });
+        commit({ op: "forget", id: t.id, reuse: true });
     });
 }

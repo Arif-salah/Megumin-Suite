@@ -32,7 +32,7 @@
 // through all of them. Same coupling, more to read.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { extension_settings, saveSettingsDebounced, Popup, POPUP_TYPE } from "../st.js";
+import { extension_settings, saveSettingsDebounced, Popup, POPUP_TYPE, substituteParams, getContext } from "../st.js";
 import { extensionName } from "../core/constants.js";
 import { localProfile } from "../core/state.js";
 import { isDevEngineDirty, setDevEngineDirty } from "../core/state.js";
@@ -40,12 +40,17 @@ import { fireRefreshHook, REFRESH } from "../core/refreshHooks.js";
 import { hardcodedLogic } from "../../data/database.js";
 import { meguminCotEntryForMode } from "../../data/cot/index.js";
 import { SKELETON as PRESET_SKELETON } from "../../data/skeleton.js";
+import { SKELETON as SKELETON_V10 } from "../../data/skeletonV10.js";
+import { buildBaseDict } from "../engine/buildBaseDict.js";
+import { fillPreview, previewText } from "../engine/promptPreview.js";
+import { blocksLeftOut } from "../features/blocks/registry.js";
+import { setPromptTrace } from "../prompts/edits.js";
 import { expandPresetSections } from "../engine/presetSections.js";
 import {
     MEGUMIN_SLOT_REGISTRY,
     SLOT_GROUPS, meguminSlotByTrigger, meguminSlotByKey, meguminSlotIsLive,
     meguminModuleTrigger, meguminAddonSlots, meguminIsDevEditableMode,
-    meguminEngineSlots,
+    meguminEngineSlots, meguminSlotInTag,
 } from "../../data/slots.js";
 import {
     getSharedFragment, setSharedFragment, resolveSlot, engineShadowsShared,
@@ -95,6 +100,8 @@ const session = {
     engine: null,       // { modeData, isNew, returnTo }
     expanded: new Set(),
     showAuto: false,
+    json: null,         // the Universal .json the landing shows: "v11" | "v10" (plan 025)
+    back: null,         // where an add-on page goes back to: { view, arg, label }
 };
 
 // There was a PRESENT_TRIGGERS set here that flagged any slot whose tag was not
@@ -114,6 +121,7 @@ const session = {
 // as the parts it is made of, so each editable part sits where it is sent.
 const SKELETON = PRESET_SKELETON.map(card => ({ ...card, content: expandPresetSections(card.content) }));
 const SKELETON_V11 = PRESET_SKELETON.map(card => ({ ...card, content: expandPresetSections(card.content, { frame: "v11" }) }));
+const SKELETON_V10_DRAWN = SKELETON_V10.map(card => ({ ...card, content: expandPresetSections(card.content) }));
 
 const CHAT_HISTORY_INDEX = SKELETON.findIndex(c => c.id === "chatHistory");
 
@@ -134,10 +142,16 @@ const CARRIERS = {
         text: "Wrapped in think tags and sent inside <b>Thinking Tags</b> — that is the tag your preset carries. "
             + "Whatever you write here lands where that add-on's <code>{Thinking}</code> marker sits.",
     },
+    // World State, Bonds and Sheet rules: built by the blocks, sent apart from
+    // the lines to fill in.
+    blockRules: {
+        tag: "[[blocks]]",
+        text: "Sent with the rules for the blocks: near the top of the prompt with a V11 preset, just above the <b>Blocks</b> section with older presets.",
+    },
 };
 
 const SCOPE_META = {
-    engine: { cls: "scope-engine", label: "This engine", icon: "fa-microchip" },
+    engine: { cls: "scope-engine", label: "This preset", icon: "fa-microchip" },
     shared: { cls: "scope-shared", label: "Add-on", icon: "fa-puzzle-piece" },
     auto: { cls: "scope-auto", label: "Automatic", icon: "fa-wand-magic-sparkles" },
 };
@@ -180,6 +194,8 @@ function findPlacement(trigger, slot) {
 
 /** One sentence a non-technical reader can act on. */
 function describePlacement(slot) {
+    // A text with no tag in the preset (plan 024) says where it goes itself.
+    if (slot.placement) return esc(slot.placement);
     const carried = slot.carrier ? CARRIERS[slot.carrier] : null;
     const p = findPlacement(slot.trigger, slot);
     if (carried) {
@@ -216,6 +232,7 @@ function describePlacement(slot) {
 
 /** A little map of the outgoing messages with this slot's position marked. */
 function renderPlacementMap(slot) {
+    if (slot.placement) return $(`<div class="dev-map"></div>`);
     const p = findPlacement(slot.trigger, slot);
     const $map = $(`<div class="dev-map"></div>`);
 
@@ -274,8 +291,8 @@ function renderSlotEditor(slot, modeData, onChanged) {
         $wrap.append(`
             <div class="dev-note dev-note-shared">
                 <i class="fa-solid fa-globe"></i>
-                <span><b>This is shared.</b> No engine holds a copy of it — every engine leaves the
-                slot open for whatever is here. Editing it changes it for every engine and every
+                <span><b>This is shared.</b> No preset holds a copy of it — every preset leaves the
+                slot open for whatever is here. Editing it changes it for every preset and every
                 character, and it saves on its own as soon as you click away.</span>
             </div>
         `);
@@ -295,8 +312,8 @@ function renderSlotEditor(slot, modeData, onChanged) {
         $wrap.append(`
             <div class="dev-note dev-note-warn">
                 <i class="fa-solid fa-triangle-exclamation"></i>
-                <span>The engine you have open carries its own copy of this, so it is ignoring the
-                shared version. That only happens with engines made before add-ons were shared.</span>
+                <span>The preset you have open carries its own copy of this, so it is ignoring the
+                shared version. That only happens with presets made before add-ons were shared.</span>
                 <button class="ps-modern-btn secondary dev-unshadow">Use the shared version</button>
             </div>
         `);
@@ -383,7 +400,7 @@ function renderSlotEditor(slot, modeData, onChanged) {
         if (slot.scope === "shared" || (slot.scope === "auto" && slot.overridable)) {
             const had = getSharedFragment(slot.key).trim() !== "";
             setSharedFragment(slot.key, v);
-            if (v) toastr.success(`${slot.label} saved for every engine.`);
+            if (v) toastr.success(`${slot.label} saved for every preset.`);
             else if (had) toastr.info(`${slot.label} is back to the built-in version.`);
         } else if (modeData) {
             modeData[slot.key] = v;
@@ -463,7 +480,7 @@ function renderModulesFor(slot, modeData, rerender) {
                 rerender();
             });
             $m.find(".dev-module-del").on("click", async () => {
-                const ok = await new Popup($(`<div>Remove <b>${esc(mod.name)}</b> from this engine?</div>`),
+                const ok = await new Popup($(`<div>Remove <b>${esc(mod.name)}</b> from this preset?</div>`),
                     POPUP_TYPE.CONFIRM, "Remove module", { okButton: "Remove", cancelButton: "Keep" }).show();
                 if (!ok) return;
                 modeData.customToggles = modeData.customToggles.filter(x => x.id !== mod.id);
@@ -486,91 +503,259 @@ function renderModulesFor(slot, modeData, rerender) {
     return $wrap;
 }
 
+// ── Which Universal .json is loaded (plan 025) ──────────────────────────────
+//
+// Dev Mode opens on the preset file SillyTavern has loaded, read off the same
+// selector as the Cache Friendly check. The name decides; a name that says
+// neither falls back to the story preset's generation, then to V11 (what new
+// installs get).
+const JSON_FILES = {
+    v11: { label: "V11 Universal", file: "Megumin Suite V11 Universal.json", skeleton: () => SKELETON_V11 },
+    v10: { label: "V10 Universal", file: "Megumin Suite V10 Universal.json", skeleton: () => SKELETON_V10_DRAWN },
+};
+
+function detectJson() {
+    let name = "";
+    try { name = $("#settings_preset_openai option:selected").text().trim(); } catch (e) { name = ""; }
+    if (/v\s*11/i.test(name)) return "v11";
+    if (/v\s*10/i.test(name)) return "v10";
+    const all = [...hardcodedLogic.modes, ...(extension_settings[extensionName].customModes || [])];
+    const engine = all.find(m => m.id === (localProfile && localProfile.mode));
+    if (engine && engine.turnFrame === "v11") return "v11";
+    return engine ? "v10" : "v11";
+}
+
+// Opening an add-on from a list remembers the way back.
+function openAddon(key, back) {
+    session.back = back || null;
+    renderDevMode("addon", key);
+}
+
+const BACK_TO_FILE = () => ({ view: "landing", label: "Back to the file" });
+
 // ────────────────────────────────────────────────────────────────────────────
-// VIEW: landing — the two doors
+// VIEW: landing — the preset file, its skeleton, and the doors
 // ────────────────────────────────────────────────────────────────────────────
 
 function renderLanding(c) {
     setDevEngineDirty(false);
     session.engine = null;
     session.expanded.clear();
+    session.back = null;
+    if (!session.json) session.json = detectJson();
+    const running = detectJson();
+    const json = session.json;
     $("#ps_stage_sub").text("Change what the AI is told, and see exactly where each piece lands.");
 
-    if (isCacheFriendlyPreset()) {
-        c.append(`
-            <div class="dev-note dev-note-warn">
-                <i class="fa-solid fa-triangle-exclamation"></i>
-                <span><b>You're running a Cache Friendly preset.</b> The Engines document shows the
-                standard card order. Several tags sit further down in Output RULES in this preset.
-                Don't worry &mdash; editing works exactly the same.</span>
-            </div>
-        `);
-    }
-
-    const changed = meguminAddonSlots().filter(s => getSharedFragment(s.key).trim() !== "").length;
-    const engines = (extension_settings[extensionName].customModes || []).length;
-
-    const $doors = $(`
-        <div class="dev-doors">
-            <div class="dev-door dev-door-addons" id="dev_door_addons">
-                <div class="dev-door-icon"><i class="fa-solid fa-puzzle-piece"></i></div>
-                <div class="dev-door-title">Add-ons</div>
-                <div class="dev-door-desc">
-                    The pieces every engine shares — thinking steps, MVU, the ban list,
-                    death and combat, the output blocks.
-                    <b>Change one here and every engine uses it.</b>
+    // The file switch.
+    const $pick = $(`
+        <div class="dev-json">
+            <div class="dev-json-head">
+                <div class="dev-json-title"><i class="fa-solid fa-file-code"></i> Your preset file</div>
+                <div class="dev-json-desc">
+                    The <b>Universal .json</b> you imported in SillyTavern (the sliders icon, Chat Completion presets).
+                    It's the frame every message goes out in. This is <b>not</b> the story preset you pick in the
+                    Presets tab: that one only fills the preset's own rules inside this file.
                 </div>
-                <div class="dev-door-meta">${changed
-                    ? `${changed} changed`
-                    : `${meguminAddonSlots().length} to choose from`}</div>
-                <div class="dev-door-go">Open <i class="fa-solid fa-arrow-right"></i></div>
             </div>
-            <div class="dev-door dev-door-engines" id="dev_door_engines">
-                <div class="dev-door-icon"><i class="fa-solid fa-microchip"></i></div>
-                <div class="dev-door-title">Engines</div>
-                <div class="dev-door-desc">
-                    The rules that make one engine write differently from another.
-                    Shown as the real prompt, in the real order, with your add-ons marked
-                    where they land.
-                </div>
-                <div class="dev-door-meta">${engines
-                    ? `${engines} of your own`
-                    : "start from a built-in one"}</div>
-                <div class="dev-door-go">Open <i class="fa-solid fa-arrow-right"></i></div>
-            </div>
-        </div>
-        <div class="dev-door-hint">
-            <i class="fa-solid fa-circle-info"></i>
-            Not sure? Almost everything people want to change lives in <b>Add-ons</b>.
-            You only need an engine to rewrite how the AI is told to write.
+            <div class="dev-json-cards"></div>
         </div>
     `);
+    Object.entries(JSON_FILES).forEach(([id, f]) => {
+        const $card = $(`
+            <button class="dev-json-card ${id === json ? "is-picked" : ""}">
+                <span class="dev-json-name">${esc(f.label)}</span>
+                <span class="dev-json-file">${esc(f.file)}</span>
+                ${id === running ? `<span class="dev-json-using"><i class="fa-solid fa-circle-check"></i> You're using this</span>` : ""}
+            </button>
+        `);
+        $card.on("click", () => { session.json = id; renderDevMode("landing"); });
+        $pick.find(".dev-json-cards").append($card);
+    });
+    c.append($pick);
+
+    // The tools.
+    const $tools = $(`
+        <div class="dev-tools">
+            <button class="ps-modern-btn primary" id="dev_btn_preview"><i class="fa-solid fa-eye"></i> Preview full prompt</button>
+            <button class="ps-modern-btn secondary" id="dev_btn_all"><i class="fa-solid fa-list"></i> All add-ons</button>
+            <label class="dev-toggle-auto"><input type="checkbox" ${session.showAuto ? "checked" : ""} /> Show automatic parts</label>
+        </div>
+    `);
+    $tools.find("#dev_btn_preview").on("click", () => renderDevMode("preview"));
+    $tools.find("#dev_btn_all").on("click", () => renderDevMode("group", "all"));
+    $tools.find(".dev-toggle-auto input").on("change", function () {
+        session.showAuto = $(this).is(":checked");
+        renderDevMode("landing");
+    });
+    c.append($tools);
+
+    // The doors that are not about the file.
+    const edits = group => meguminAddonSlots().filter(s => s.group === group && getSharedFragment(s.key).trim() !== "").length;
+    const engines = (extension_settings[extensionName].customModes || []).length;
+    const door = (id, cls, icon, title, desc, meta) => `
+        <div class="dev-door dev-door-small ${cls}" id="${id}">
+            <div class="dev-door-icon"><i class="fa-solid ${icon}"></i></div>
+            <div class="dev-door-title">${title}</div>
+            <div class="dev-door-desc">${desc}</div>
+            <div class="dev-door-meta">${meta}</div>
+        </div>`;
+    const $doors = $(`<div class="dev-doors">
+        ${door("dev_door_chomu", "dev-door-chomu", "fa-cat", "Chomusuke",
+            "What Chomusuke is told when it writes World State, blocks, the notebook or a combined call.",
+            edits("chomusuke") ? `${edits("chomusuke")} changed` : "never sent to the story")}
+        ${door("dev_door_images", "dev-door-images", "fa-image", "Images (V2)",
+            "How image prompts are written: the style guides, the shots, the outfit and look tasks.",
+            edits("imagev2") ? `${edits("imagev2")} changed` : "used by Image Gen V2")}
+        ${door("dev_door_engines", "dev-door-engines", "fa-microchip", "Presets",
+            "The story presets from the Presets tab: the rules that make one write differently from another.",
+            engines ? `${engines} of your own` : "start from a built-in one")}
+    </div>`);
+    $doors.find("#dev_door_chomu").on("click", () => renderDevMode("group", "chomusuke"));
+    $doors.find("#dev_door_images").on("click", () => renderDevMode("group", "imagev2"));
+    $doors.find("#dev_door_engines").on("click", () => renderDevMode("engines"));
     c.append($doors);
 
-    $doors.find("#dev_door_addons").on("click", () => renderDevMode("addons"));
-    $doors.find("#dev_door_engines").on("click", () => renderDevMode("engines"));
+    if (json === "v11" && isCacheFriendlyPreset()) {
+        c.append(`<div class="dev-note dev-note-warn"><i class="fa-solid fa-triangle-exclamation"></i>
+            <span>You're on a Cache Friendly file: a few tags sit further down, in Output RULES. Editing works the same.</span></div>`);
+    }
+    renderJsonDocument(c, json);
 }
 
 // ────────────────────────────────────────────────────────────────────────────
-// VIEW: the add-on list
+// The picked file, message by message, with every option where it goes
 // ────────────────────────────────────────────────────────────────────────────
 
-function renderAddonsList(c) {
-    $("#ps_stage_sub").text("Shared by every engine. Pick one to edit it and see where it goes.");
-    c.append(backBar("Add-ons", () => renderDevMode("landing")));
+function renderPresetChip(slot) {
+    return $(`
+        <div class="dev-chip scope-engine is-static">
+            <i class="fa-solid fa-microchip"></i>
+            <span class="dev-chip-name">${esc(slot.label)}</span>
+            <span class="dev-slot-status st-auto">Your story preset</span>
+            <span class="dev-chip-oneline">Filled by the preset you pick in the Presets tab. Edit it from the Presets door above.</span>
+        </div>
+    `);
+}
+
+function renderJsonDocument(c, json) {
+    const f = JSON_FILES[json];
+    const back = BACK_TO_FILE();
+    const texts = meguminAddonSlots().filter(s => meguminSlotInTag(s, json));
+    const placed = new Set();
+
+    c.append(`
+        <div class="dev-json-doc-head">
+            <span>Inside ${esc(f.file)}</span>
+            <small>Top to bottom, in the order SillyTavern sends it. Green pieces are yours to edit; click one.</small>
+        </div>
+    `);
+    const $doc = $(`<div class="dev-doc"></div>`);
+    const chip = slot => {
+        const $c = renderAddonChip(slot, null);
+        $c.off("click").on("click", () => openAddon(slot.key, back));
+        return $c;
+    };
+
+    f.skeleton().forEach(card => {
+        if (card.marker) {
+            $doc.append(`
+                <div class="dev-card dev-card-st">
+                    <div class="dev-card-head">
+                        <span class="dev-card-name">${esc(card.name)}</span>
+                        <span class="dev-card-role">${esc(card.role)}</span>
+                        <span class="dev-card-owner">SillyTavern fills this in</span>
+                    </div>
+                </div>`);
+            return;
+        }
+        const $card = $(`
+            <div class="dev-card ${card.enabled === false ? "is-off" : ""}">
+                <div class="dev-card-head">
+                    <span class="dev-card-name">${esc(card.name)}</span>
+                    <span class="dev-card-role">${esc(card.role)}</span>
+                    ${card.enabled === false ? `<span class="dev-card-owner">Switched off in the file</span>` : ""}
+                </div>
+            </div>`);
+        const $inner = $(`<div class="dev-card-body"></div>`);
+        let painted = 0;
+        segmentCard(card.content).forEach(seg => {
+            if (seg.type === "text") {
+                if (!seg.text.trim()) return;
+                $inner.append(`<pre class="dev-literal">${esc(seg.text.replace(/^\n+|\n+$/g, ""))}</pre>`);
+                painted++;
+                return;
+            }
+            const slot = meguminSlotByTrigger(seg.trigger);
+            const inside = texts.filter(s => meguminSlotInTag(s, json) === seg.trigger);
+            if (!slot || slot.hidden) {
+                if (!inside.length) return;
+            } else if (slot.scope === "engine") {
+                $inner.append(renderPresetChip(slot));
+            } else if (slot.scope === "shared" || slot.overridable) {
+                $inner.append(chip(slot));
+            } else if (session.showAuto || inside.length) {
+                $inner.append(renderAutoChip(slot));
+            } else {
+                return;
+            }
+            // The texts built into this part, nested under it.
+            inside.forEach(s => {
+                placed.add(s.key);
+                $inner.append($(`<div class="dev-carried"></div>`).append(chip(s)));
+            });
+            painted++;
+        });
+        if (!painted) return;
+        $card.append($inner);
+        $doc.append($card);
+    });
+
+    // Texts this file sends from a part the skeleton draws as its pieces (the
+    // V11 final check is drawn as its lines), so they still get a place.
+    const rest = texts.filter(s => !placed.has(s.key));
+    if (rest.length) {
+        const $card = $(`<div class="dev-card dev-card-orphan"><div class="dev-card-head">
+            <span class="dev-card-name">Also in this file</span></div></div>`);
+        const $inner = $(`<div class="dev-card-body"></div>`);
+        rest.forEach(s => $inner.append(chip(s)));
+        $card.append($inner);
+        $doc.append($card);
+    }
+    c.append($doc);
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// VIEW: a list of add-ons (Chomusuke, Images V2, or all of them)
+// ────────────────────────────────────────────────────────────────────────────
+
+const GROUP_PAGES = {
+    chomusuke: { title: "Chomusuke", sub: "What Chomusuke is told. Never sent to the story model.", groups: ["chomusuke"] },
+    imagev2: { title: "Images (V2)", sub: "How image prompts are written, by Chomusuke or by the story.", groups: ["imagev2"] },
+    all: { title: "All add-ons", sub: "Shared by every preset. Pick one to edit it and see where it goes.", groups: null },
+};
+
+function renderAddonsList(c, page = "all") {
+    const p = GROUP_PAGES[page] || GROUP_PAGES.all;
+    $("#ps_stage_sub").text(p.sub);
+    c.append(backBar(p.title, () => renderDevMode("landing")));
 
     const slots = meguminAddonSlots();
+    const back = { view: "group", arg: page, label: `Back to ${p.title}` };
 
     SLOT_GROUPS.forEach(group => {
+        if (p.groups && !p.groups.includes(group.id)) return;
         const mine = slots.filter(s => s.group === group.id);
         if (!mine.length) return;
 
-        c.append(`
-            <div class="dev-group-head">
-                <span>${esc(group.label)}</span>
-                ${group.hint ? `<small>${esc(group.hint)}</small>` : ""}
-            </div>
-        `);
+        if (!p.groups || p.groups.length > 1) {
+            c.append(`
+                <div class="dev-group-head">
+                    <span>${esc(group.label)}</span>
+                    ${group.hint ? `<small>${esc(group.hint)}</small>` : ""}
+                </div>
+            `);
+        }
         const $list = $(`<div class="dev-group"></div>`);
 
         mine.forEach(slot => {
@@ -589,11 +774,199 @@ function renderAddonsList(c) {
                     <div class="dev-addon-go"><i class="fa-solid fa-chevron-right"></i></div>
                 </div>
             `);
-            $row.on("click", () => renderDevMode("addon", slot.key));
+            $row.on("click", () => openAddon(slot.key, back));
             $list.append($row);
         });
 
         c.append($list);
+    });
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// VIEW: the full prompt, as it would go out now
+// ────────────────────────────────────────────────────────────────────────────
+
+// What a piece of the preview is, for its colour and its click.
+function pieceInfo(node) {
+    if (node.type === "edit") {
+        const slot = meguminSlotByKey(node.key);
+        const edited = getSharedFragment(node.key).trim() !== "";
+        return { label: slot ? slot.label : node.key, kind: edited ? "edited" : "default", key: slot ? slot.key : null };
+    }
+    const slot = meguminSlotByTrigger(node.trigger);
+    if (!slot) return { label: node.trigger, kind: "auto", key: null };
+    if (slot.scope === "engine") return { label: `${slot.label} (your story preset)`, kind: "preset", key: null };
+    if (slot.scope === "shared" || slot.overridable) {
+        const { source } = resolveSlot(slot, null);
+        return { label: slot.label, kind: source === "builtin" ? "default" : "edited", key: slot.key };
+    }
+    return { label: `${slot.label} (filled in automatically)`, kind: "auto", key: null };
+}
+
+const PIECE_WORDS = { edited: "Your version", default: "Built-in, editable", preset: "From your story preset", auto: "Filled in automatically" };
+
+// Why a [[tag]] sends nothing, or null when the preview says nothing about it.
+function emptyInfo(trigger) {
+    const slot = meguminSlotByTrigger(trigger);
+    if (!slot || slot.hidden) return null;
+    const key = slot.key && (slot.scope === "shared" || slot.overridable) ? slot.key : null;
+    if (!meguminSlotIsLive(slot, localProfile)) {
+        const g = slot.gate || {};
+        return { label: slot.label, kind: "off", word: "Off", why: `Turn on ${g.label || slot.label} in the ${g.where} tab to send it.`, key };
+    }
+    if (slot.scope === "engine") return { label: slot.label, kind: "empty", word: "Not in your story preset", why: "Your story preset leaves this part empty.", key: null };
+    return { label: slot.label, kind: "empty", word: "Nothing this turn", why: "On, but there is nothing to send for it right now.", key };
+}
+
+function renderEmptyChip(n, back) {
+    const info = emptyInfo(n.trigger);
+    if (!info) return null;
+    const $chip = $(`<span class="dev-pv-empty is-${info.kind}"><i class="fa-solid ${info.kind === "off" ? "fa-power-off" : "fa-circle-minus"}"></i> ${esc(info.label)} · ${esc(info.word)}</span>`);
+    $chip.attr("title", `${info.why}${info.key ? " Click to see its text." : ""}`);
+    if (info.key) $chip.addClass("is-link").on("click", e => { e.stopPropagation(); openAddon(info.key, back); });
+    return $chip;
+}
+
+// `seen`: one chip per part in a message, even when a text carries its tag again.
+function renderPreviewNodes(nodes, $into, back, seen = new Set()) {
+    nodes.forEach(n => {
+        if (n.type === "text") {
+            $into.append(document.createTextNode(substituteParams(n.text)));
+            return;
+        }
+        if (n.type === "empty") {
+            if (seen.has(n.trigger)) return;
+            seen.add(n.trigger);
+            const $chip = renderEmptyChip(n, back);
+            if ($chip) $into.append($chip);
+            return;
+        }
+        const info = pieceInfo(n);
+        const $p = $(`<span class="dev-pv-piece is-${info.kind}"></span>`);
+        $p.attr("title", `${info.label} · ${PIECE_WORDS[info.kind]}${info.key ? " · click to edit" : ""}`);
+        if (info.key) {
+            $p.addClass("is-link").on("click", e => { e.stopPropagation(); openAddon(info.key, back); });
+        }
+        renderPreviewNodes(n.children, $p, back, seen);
+        $into.append($p);
+    });
+}
+
+// The blocks that could ride in the block rules but are not asked for this turn.
+const BLOCKS_TRIGGER = { v11: "[[block_rules]]", v10: "[[blocks]]" };
+const LEFT_OUT_WORDS = { off: "Off", elsewhere: "Written by someone else", empty: "Not this turn" };
+
+function hasTrigger(nodes, trigger) {
+    return nodes.some(n => ((n.type === "tag" || n.type === "empty") && n.trigger === trigger) || (n.children && hasTrigger(n.children, trigger)));
+}
+
+function renderLeftOutBlocks(nodes, json, dict) {
+    if (!hasTrigger(nodes, BLOCKS_TRIGGER[json])) return null;
+    let list = [];
+    try { list = blocksLeftOut(dict); } catch (e) { console.warn(`[${extensionName}] Dev Mode preview: could not list the blocks left out.`, e); }
+    if (!list.length) return null;
+    const $row = $(`<div class="dev-pv-chips dev-pv-leftout"><span class="dev-pv-note">Blocks not in this turn:</span></div>`);
+    list.forEach(b => {
+        const icon = b.kind === "off" ? "fa-power-off" : b.kind === "elsewhere" ? "fa-cat" : "fa-circle-minus";
+        const $chip = $(`<span class="dev-pv-empty is-${b.kind === "off" ? "off" : "empty"}"><i class="fa-solid ${icon}"></i> ${esc(b.label)} · ${esc(LEFT_OUT_WORDS[b.kind])}</span>`);
+        $chip.attr("title", b.why);
+        $row.append($chip);
+    });
+    return $row;
+}
+
+function renderPreview(c) {
+    const json = session.json || detectJson();
+    const f = JSON_FILES[json];
+    $("#ps_stage_sub").text("The prompt this chat would send now, message by message.");
+    c.append(backBar(`Full prompt · ${f.label}`, () => renderDevMode("landing"), "Back to the file"));
+
+    let dict = {};
+    setPromptTrace(true);
+    try { dict = buildBaseDict(true) || {}; }
+    catch (e) { console.error(`[${extensionName}] Dev Mode preview: could not build the prompt.`, e); }
+    finally { setPromptTrace(false); }
+    if (localProfile.devOverrides) {
+        Object.keys(localProfile.devOverrides).forEach(k => { if (dict[k] !== undefined) dict[k] = localProfile.devOverrides[k]; });
+    }
+
+    c.append(`
+        <div class="dev-pv-legend">
+            <span class="dev-pv-piece is-edited">Your version</span>
+            <span class="dev-pv-piece is-default">Built-in, editable</span>
+            <span class="dev-pv-piece is-preset">From your story preset</span>
+            <span class="dev-pv-piece is-auto">Filled in automatically</span>
+            <span class="dev-pv-empty is-off"><i class="fa-solid fa-power-off"></i> Off</span>
+            <span class="dev-pv-empty is-empty"><i class="fa-solid fa-circle-minus"></i> Nothing this turn</span>
+            <small>Plain text is the file's own. Click a coloured piece to edit it. Off and empty parts send nothing; hover one to see why. Dice and other random parts change each turn.</small>
+        </div>
+    `);
+
+    const back = { view: "preview", label: "Back to the preview" };
+    const raw = json === "v10" ? SKELETON_V10 : PRESET_SKELETON;
+    let chatCount = 0;
+    try { chatCount = (getContext().chat || []).filter(m => m && !m.is_system).length; } catch (e) { chatCount = 0; }
+    raw.forEach(card => {
+        if (card.enabled === false) {
+            c.append(`
+                <div class="dev-pv-card is-st is-disabled">
+                    <div class="dev-pv-head">
+                        <span class="dev-pv-name">${esc(card.name)}</span>
+                        <span class="dev-pv-empty is-off"><i class="fa-solid fa-power-off"></i> Off in the file</span>
+                        <span class="dev-pv-note">Switched off in SillyTavern's preset, so it is not sent.</span>
+                    </div>
+                </div>`);
+            return;
+        }
+        if (card.marker) {
+            const isChat = card.id === "chatHistory";
+            c.append(`
+                <div class="dev-pv-card is-st">
+                    <div class="dev-pv-head">
+                        <span class="dev-pv-name">${esc(card.name)}</span>
+                        <span class="dev-pv-note">${isChat
+                            ? `${chatCount} message${chatCount === 1 ? "" : "s"} from this chat${localProfile.hideBlocksFromAI !== false ? ", with old blocks taken out" : ""}`
+                            : "SillyTavern fills this in"}</span>
+                    </div>
+                </div>`);
+            return;
+        }
+        const nodes = fillPreview(card.content, dict);
+        // A message that sends nothing still shows, with what is off in it.
+        if (!previewText(nodes).trim()) {
+            const $chips = $(`<div class="dev-pv-chips"></div>`);
+            const seen = new Set();
+            const walk = list => list.forEach(n => {
+                if (n.type === "empty" && !seen.has(n.trigger)) { seen.add(n.trigger); const $ch = renderEmptyChip(n, back); if ($ch) $chips.append($ch); }
+                else if (n.children) walk(n.children);
+            });
+            walk(nodes);
+            const $left = renderLeftOutBlocks(nodes, json, dict);
+            if ($left) $left.children().not(".dev-pv-note").appendTo($chips);
+            if (!$chips.children().length) return;
+            const $empty = $(`
+                <div class="dev-pv-card is-st is-disabled">
+                    <div class="dev-pv-head">
+                        <span class="dev-pv-name">${esc(card.name)}</span>
+                        <span class="dev-pv-note">Not sent: everything in it is off or empty.</span>
+                    </div>
+                </div>`);
+            $empty.append($chips);
+            c.append($empty);
+            return;
+        }
+        const $card = $(`
+            <div class="dev-pv-card">
+                <div class="dev-pv-head">
+                    <span class="dev-pv-name">${esc(card.name)}</span>
+                    <span class="dev-pv-role role-${esc(card.role)}">${esc(card.role)}</span>
+                </div>
+                <div class="dev-pv-body"></div>
+            </div>`);
+        renderPreviewNodes(nodes, $card.find(".dev-pv-body"), back);
+        const $left = renderLeftOutBlocks(nodes, json, dict);
+        if ($left) $card.append($left);
+        c.append($card);
     });
 }
 
@@ -610,13 +983,15 @@ function renderAddonEditor(c, key) {
 
     // Coming from an engine? Go back to it, with its unsaved edits intact.
     const cameFromEngine = !!session.engine;
-    const back = () => cameFromEngine ? renderDevMode("editor") : renderDevMode("addons");
+    const from = session.back;
+    const back = () => cameFromEngine ? renderDevMode("editor")
+        : from ? renderDevMode(from.view, from.arg ?? null) : renderDevMode("group", "all");
 
     $("#ps_stage_sub").text(cameFromEngine
-        ? `Add-on — shared by every engine, including ${session.engine.modeData.label}.`
-        : "Shared by every engine.");
+        ? `Add-on — shared by every preset, including ${session.engine.modeData.label}.`
+        : "Shared by every preset.");
 
-    c.append(backBar(slot.label, back, cameFromEngine ? "Back to engine" : "All add-ons"));
+    c.append(backBar(slot.label, back, cameFromEngine ? "Back to preset" : from ? from.label : "All add-ons"));
 
     const $cols = $(`<div class="dev-cols"></div>`);
     const $left = $(`<div class="dev-col-main"></div>`);
@@ -655,13 +1030,13 @@ function renderAddonEditor(c, key) {
 function renderEnginesList(c) {
     session.engine = null;
     setDevEngineDirty(false);
-    $("#ps_stage_sub").text("An engine is the set of rules telling the AI how to write.");
+    $("#ps_stage_sub").text("A preset is the set of rules telling the AI how to write.");
     c.append(backBar("Engines", () => renderDevMode("landing")));
 
     c.append(`
         <div class="dev-actions">
-            <button id="dev_btn_new" class="ps-modern-btn primary"><i class="fa-solid fa-wand-magic-sparkles"></i> Create Blank Engine</button>
-            <button id="dev_btn_import" class="ps-modern-btn secondary"><i class="fa-solid fa-file-import"></i> Import Engine (JSON)</button>
+            <button id="dev_btn_new" class="ps-modern-btn primary"><i class="fa-solid fa-wand-magic-sparkles"></i> Create Blank Preset</button>
+            <button id="dev_btn_import" class="ps-modern-btn secondary"><i class="fa-solid fa-file-import"></i> Import Preset (JSON)</button>
             <input type="file" id="dev_import_file" accept=".json" style="display:none;" />
         </div>
     `);
@@ -686,7 +1061,7 @@ function renderEnginesList(c) {
     });
 
     const customModes = extension_settings[extensionName].customModes || [];
-    c.append(`<div class="ps-rule-title dev-rule green"><i class="fa-solid fa-microchip"></i> Your Engines</div>`);
+    c.append(`<div class="ps-rule-title dev-rule green"><i class="fa-solid fa-microchip"></i> Your Presets</div>`);
 
     if (!customModes.length) {
         c.append(`<div class="dev-empty">None yet. Pick a built-in one below to start from.</div>`);
@@ -696,13 +1071,13 @@ function renderEnginesList(c) {
             const card = $(`
                 <div class="ps-card dev-card-custom">
                     <div style="width:100%;">
-                        <div class="ps-card-title"><span style="color:#10b981;">${esc(m.label)}</span></div>
-                        <div class="ps-card-desc">${m.parentId ? `Copy of ${esc(m.parentId)}` : "Your own engine"}</div>
+                        <div class="ps-card-title"><span style="color:var(--c-live, #10b981);">${esc(m.label)}</span></div>
+                        <div class="ps-card-desc">${m.parentId ? `Copy of ${esc(m.parentId)}` : "Your own preset"}</div>
                     </div>
                     <div style="display:flex; gap:8px; margin-top:20px; width:100%;">
                         <button class="ps-modern-btn secondary dev-export" title="Export"><i class="fa-solid fa-download"></i></button>
                         <button class="ps-modern-btn primary dev-edit" style="flex:2;"><i class="fa-solid fa-pen"></i> Edit</button>
-                        <button class="ps-modern-btn secondary dev-delete" title="Delete" style="color:#ef4444;"><i class="fa-solid fa-trash"></i></button>
+                        <button class="ps-modern-btn secondary dev-delete" title="Delete" style="color:var(--c-danger, #ef4444);"><i class="fa-solid fa-trash"></i></button>
                     </div>
                 </div>
             `);
@@ -719,7 +1094,7 @@ function renderEnginesList(c) {
             card.find(".dev-delete").on("click", async () => {
                 const ok = await new Popup(
                     $(`<div>Delete <b>${esc(m.label)}</b>? This cannot be undone.<br><br>Your add-ons are not affected.</div>`),
-                    POPUP_TYPE.CONFIRM, "Delete engine", { okButton: "Delete", cancelButton: "Keep" }).show();
+                    POPUP_TYPE.CONFIRM, "Delete preset", { okButton: "Delete", cancelButton: "Keep" }).show();
                 if (!ok) return;
                 extension_settings[extensionName].customModes =
                     extension_settings[extensionName].customModes.filter(x => x.id !== m.id);
@@ -731,7 +1106,7 @@ function renderEnginesList(c) {
         c.append(grid);
     }
 
-    c.append(`<div class="ps-rule-title dev-rule gold"><i class="fa-solid fa-cube"></i> Start From A Built-In Engine</div>`);
+    c.append(`<div class="ps-rule-title dev-rule gold"><i class="fa-solid fa-cube"></i> Start From A Built-In Preset</div>`);
     const coreGrid = $(`<div class="ps-grid dev-grid"></div>`);
     hardcodedLogic.modes.filter(meguminIsDevEditableMode).forEach(m => {
         const card = $(`
@@ -807,7 +1182,7 @@ function renderEngineSlot(slot, modeData, rerender) {
             <div class="dev-slot-head">
                 <i class="dev-slot-caret fa-solid fa-chevron-${isOpen ? "down" : "right"}"></i>
                 <span class="dev-slot-label">${esc(slot.label)}</span>
-                <span class="dev-slot-badge"><i class="fa-solid fa-microchip"></i> This engine</span>
+                <span class="dev-slot-badge"><i class="fa-solid fa-microchip"></i> This preset</span>
                 <span class="dev-slot-status ${status.cls}">${esc(status.text)}</span>
                 <span class="dev-slot-oneline">${esc(onelineOf(value))}</span>
             </div>
@@ -935,7 +1310,7 @@ function renderEngineDocument(c, modeData, rerender) {
         const $card = $(`
             <div class="dev-card dev-card-orphan">
                 <div class="dev-card-head">
-                    <span class="dev-card-name">Other engine settings</span>
+                    <span class="dev-card-name">Other preset settings</span>
                 </div>
             </div>
         `);
@@ -954,7 +1329,7 @@ function renderEngineEditor(c) {
     const { modeData, isNew, returnTo } = session.engine;
     const rerender = () => renderDevMode("editor");
 
-    $("#ps_stage_sub").text("The real prompt, in the real order. Gold panels belong to this engine; green ones are shared add-ons.");
+    $("#ps_stage_sub").text("The real prompt, in the real order. Gold panels belong to this preset; green ones are shared add-ons.");
 
     const $bar = $(`
         <div class="dev-bar">
@@ -963,7 +1338,7 @@ function renderEngineEditor(c) {
             <label class="dev-toggle-auto">
                 <input type="checkbox" ${session.showAuto ? "checked" : ""} /> Show automatic parts
             </label>
-            <button id="dev_save_mode" class="ps-modern-btn primary dev-save"><i class="fa-solid fa-floppy-disk"></i> Save Engine</button>
+            <button id="dev_save_mode" class="ps-modern-btn primary dev-save"><i class="fa-solid fa-floppy-disk"></i> Save Preset</button>
         </div>
     `);
     c.append($bar);
@@ -991,8 +1366,8 @@ function renderEngineEditor(c) {
     $("#dev_back_list").on("click", async () => {
         if (isDevEngineDirty) {
             const ok = await new Popup(
-                $(`<div>This engine has changes you have not saved. Leave anyway?<br><br>
-                   Add-ons are already saved — only this engine's own gold panels would be lost.</div>`),
+                $(`<div>This preset has changes you have not saved. Leave anyway?<br><br>
+                   Add-ons are already saved — only this preset's own gold panels would be lost.</div>`),
                 POPUP_TYPE.CONFIRM, "Unsaved changes", { okButton: "Discard", cancelButton: "Stay" }).show();
             if (!ok) return;
         }
@@ -1014,7 +1389,7 @@ function renderEngineEditor(c) {
         }
         session.engine.isNew = false;
         saveSettingsDebounced();
-        toastr.success("Engine saved.");
+        toastr.success("Preset saved.");
         if (returnTo === "tab") { $(".ps-sidebar").show(); fireRefreshHook(REFRESH.SWITCH_TAB, "preset"); }
         else renderDevMode("engines");
     });
@@ -1056,7 +1431,9 @@ export function renderDevMode(view = "landing", arg = null, passedModeData = nul
 
     if (view === "landing") return renderLanding(c);
     if (view === "engines") return renderEnginesList(c);
-    if (view === "addons") return renderAddonsList(c);
+    if (view === "addons") return renderAddonsList(c, "all");
+    if (view === "group") return renderAddonsList(c, arg || "all");
+    if (view === "preview") return renderPreview(c);
     if (view === "addon") return renderAddonEditor(c, arg);
 
     if (view !== "editor") return renderLanding(c);
@@ -1074,7 +1451,7 @@ export function renderDevMode(view = "landing", arg = null, passedModeData = nul
             isNew = true;
             modeData = {
                 id: "custom_" + Date.now(),
-                label: "New Custom Engine",
+                label: "New Custom Preset",
                 isCoreClone: false,
                 isV7: false,
                 p1: "", p3: "", p4: "", p5: "", p6: "",
@@ -1120,7 +1497,7 @@ export function renderDevMode(view = "landing", arg = null, passedModeData = nul
         }
 
         if (!modeData) {
-            c.append(`<div class="dev-empty">That engine no longer exists.</div>`);
+            c.append(`<div class="dev-empty">That preset no longer exists.</div>`);
             return;
         }
         if (!modeData.customToggles) modeData.customToggles = [];

@@ -47,12 +47,12 @@ export function renderPersonality(c) {
     // would have done it again. The engine already knows what it is called.
     const lockedEngineName = (activeEngineForPersona && activeEngineForPersona.label)
         ? activeEngineForPersona.label
-        : "This engine";
+        : "This preset";
 
     if (isModern) {
         c.append(`
             <div class="mtab-locked-state">
-                <i class="fa-solid fa-user-lock" style="color: #f59e0b;"></i>
+                <i class="fa-solid fa-user-lock" style="color: var(--c-brand, #f59e0b);"></i>
                 <h3>Persona Locked</h3>
                 <p>${lockedEngineName} manages its own internal persona and strictly enforces narrative toggles natively. Standard injections are completely disabled.</p>
             </div>
@@ -61,25 +61,25 @@ export function renderPersonality(c) {
     } else if (isV6DreamTeam) {
         c.append(`
             <div class="mtab-locked-state">
-                <i class="fa-solid fa-user-lock" style="color: #a855f7;"></i>
+                <i class="fa-solid fa-user-lock" style="color: var(--c-ai, #a855f7);"></i>
                 <h3>Persona Selection Locked</h3>
-                <p>The V6 Dream Team engine utilizes an intrinsic 6-specialist framework. Standard persona injections are disabled to prevent logic conflicts.</p>
+                <p>The V6 Dream Team preset utilizes an intrinsic 6-specialist framework. Standard persona injections are disabled to prevent logic conflicts.</p>
             </div>
         `);
     } else if (isV7) {
         c.append(`
             <div class="mtab-locked-state">
-                <i class="fa-solid fa-user-lock" style="color: #3b82f6;"></i>
+                <i class="fa-solid fa-user-lock" style="color: var(--c-info, #3b82f6);"></i>
                 <h3>Persona Selection Locked</h3>
-                <p>The V7 engine utilizes a pure narrative framework. Standard persona injections are disabled to prevent logic conflicts.</p>
+                <p>The V7 preset utilizes a pure narrative framework. Standard persona injections are disabled to prevent logic conflicts.</p>
             </div>
         `);
     } else {
         const descriptions = {
             "megumin": "A rebellious, dominant voice. Adds an edge of arrogance and chaos to the narration. Best for energetic or confrontational stories.",
             "director": "Professional narrator. Clean, authoritative story direction with cinematic awareness.",
-            "Nora": "Nora should i say more.",
-            "engine": "No personality overlay at all. The engine speaks in its purest form — precise, neutral, and fully under your control. Recommended for most setups."
+            "Nora": "The story is told by Nora, a narrator with her own voice.",
+            "engine": "No personality overlay at all. The preset speaks in its purest form — precise, neutral, and fully under your control. Recommended for most setups."
         };
 
         c.append(`<div class="wstyle-section-head purple"><i class="fa-solid fa-masks-theater"></i> Select Persona</div>`);
@@ -95,7 +95,7 @@ export function renderPersonality(c) {
                     <div class="ecard-body">
                         <div class="ecard-title">
                             <span>${p.label}</span>
-                            ${isSel ? `<span class="ecard-badge" style="background:rgba(16,185,129,0.15);color:#10b981;"><i class="fa-solid fa-check"></i> Active</span>` : ''}
+                            ${isSel ? `<span class="ecard-badge" style="background:rgba(16,185,129,0.15);color:var(--c-live, #10b981);"><i class="fa-solid fa-check"></i> Active</span>` : ''}
                         </div>
                         <p class="ecard-desc">${descriptions[p.id] || ""}</p>
                         ${badges ? `<div style="margin-top:4px;">${badges}</div>` : ''}
@@ -117,7 +117,7 @@ export function renderPersonality(c) {
             <div class="mtab-toggle-row ${isOn ? 'active' : ''}">
                 <div class="toggle-info">
                     <div class="toggle-label">${tog.label}</div>
-                    ${tog.recommendedOff ? `<div class="toggle-desc"><i class="fa-solid fa-star" style="color:var(--gold);font-size:0.6rem;margin-right:4px;"></i> Off by default — most engines handle this natively</div>` : ''}
+                    ${tog.recommendedOff ? `<div class="toggle-desc"><i class="fa-solid fa-star" style="color:var(--gold);font-size:0.6rem;margin-right:4px;"></i> Off by default — most presets handle this natively</div>` : ''}
                 </div>
                 <div class="ps-switch"></div>
             </div>

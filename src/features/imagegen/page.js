@@ -3,23 +3,32 @@
 // (Classic | Version 2 · Consistent characters) with status chips, then three
 // pages: Characters (Version 2 only) · When & how · Generator.
 //
-// Nothing is hidden while ComfyUI isn't connected: a note says so and every
-// setting stays usable. The connection is checked quietly once per ComfyUI
-// address (and again on Test), never on every redraw.
+// Under the version bar, a setup checklist (plan 020): connect ComfyUI, pick a
+// workflow and model, when to draw (+ World State for Version 2). It shrinks
+// to one line once every step is done. Nothing is hidden while ComfyUI isn't
+// connected: every setting stays usable. The connection is checked quietly
+// once per ComfyUI address (and again on Test), never on every redraw.
 // ────────────────────────────────────────────────────────────────────────────
 
 import { localProfile } from "../../core/state.js";
 import { saveProfileToMemory } from "../../core/profile.js";
+import { fireRefreshHook, REFRESH } from "../../core/refreshHooks.js";
 import { worldEnabled } from "../../state/index.js";
-import { toggleQuickGenButton, igCheckConnection, igKnownConnection } from "./comfy.js";
+import { toggleQuickGenButton, igCheckConnection, igKnownConnection, igTestConnection } from "./comfy.js";
+import { checklist } from "../../ui/checklist.js";
+import { esc } from "../../ui/controls.js";
 import { imageViaChomusuke } from "./auto.js";
 import { imageGenSelectedEngine, enableWorldState, askToEnableWorldState } from "./engineChoice.js";
 import { renderCharacters } from "./v2/characters.js";
 import { renderWhenHow } from "./pages/whenHow.js";
 import { renderGenerator } from "./pages/generator.js";
+import { imageBackend, sillyTavernImagesReady } from "./backend.js";
 
 // The page you were on, kept while SillyTavern is open.
 let currentPage = null;
+
+// "When to draw", as the When & how page names it.
+const WHEN_LABEL = { always: "Every reply", frequency: "Every few replies", conditional: "When a character sends a picture", manual: "Only when I ask" };
 
 const VERSION_DESC = {
     v2: "The story names characters as @Name, and each one's saved look and current outfit are filled in, so they stay the same from image to image.",
@@ -30,7 +39,6 @@ export function renderImageGen(c) {
     c.empty();
     const s = localProfile.imageGen;
     const engine = imageGenSelectedEngine();
-    const v2Inactive = engine === "v2" && !worldEnabled();
     const pages = [
         ...(engine === "v2" ? [{ id: "chars", label: "Characters", icon: "fa-users" }] : []),
         { id: "when", label: "When & how", icon: "fa-wand-magic-sparkles" },
@@ -75,12 +83,6 @@ export function renderImageGen(c) {
                 </div>
             </div>
             <div class="igx-card-sub">${VERSION_DESC[engine]}</div>
-            ${v2Inactive ? `
-            <div class="igx-banner red">
-                <i class="fa-solid fa-triangle-exclamation"></i>
-                <span><b>Version 2 needs World State.</b> Until it is on, images are made the Classic way.</span>
-                <button type="button" class="menu_button igx-btn igx-enable-ws"><i class="fa-solid fa-thumbtack"></i> Turn on World State</button>
-            </div>` : ""}
         </div>
     `);
     $ver.find("[data-engine]").on("click", async function () {
@@ -92,35 +94,103 @@ export function renderImageGen(c) {
         currentPage = null;
         redraw();
     });
-    $ver.find(".igx-enable-ws").on("click", () => {
-        if (enableWorldState()) toastr.success("World State is on. Version 2 is active.", "Megumin Suite");
-        redraw();
-    });
     c.append($ver);
 
-    // ── Not connected: say so, hide nothing ──
-    const $notConn = $(`<div class="igx-banner" style="display:none;">
-        <i class="fa-solid fa-plug-circle-xmark"></i>
-        <span><b>ComfyUI isn't connected.</b> Every setting is still here and saves as usual. Images start once it connects.</span>
-        <button type="button" class="menu_button igx-btn igx-go-gen">Open Generator</button>
-    </div>`);
-    $notConn.find(".igx-go-gen").on("click", () => { currentPage = "gen"; redraw(); });
-    c.append($notConn);
+    // ── Set up: the steps, with the real controls (plan 020) ──
+    const $setup = $(`<div></div>`);
+    c.append($setup);
+    const goPage = id => { currentPage = id; redraw(); };
+    const drawSetup = () => {
+        const connected = igKnownConnection();
+        const whenLabel = WHEN_LABEL[s.triggerMode || "always"] || WHEN_LABEL.always;
+
+        // 1. The address and Test, here as on the Generator page.
+        const $conn = $(`<div class="igx-inline">
+            <input type="text" class="ps-modern-input igx-setup-url" value="${esc(s.comfyUrl || "")}" placeholder="http://127.0.0.1:8188" />
+            <button type="button" class="menu_button igx-btn gold igx-setup-test"><i class="fa-solid fa-plug"></i> Test</button>
+        </div>`);
+        $conn.find(".igx-setup-url").on("change", e => {
+            s.comfyUrl = String($(e.target).val() || "").trim();
+            saveProfileToMemory();
+            $("#ig_url").val(s.comfyUrl);
+        });
+        $conn.find(".igx-setup-test").on("click", async e => {
+            const $b = $(e.currentTarget);
+            if ($b.prop("disabled")) return;
+            $b.prop("disabled", true);
+            try { await igTestConnection(); } finally { $b.prop("disabled", false); }
+            if ($.contains(document, $setup[0])) { showConnection(); drawSetup(); }
+        });
+
+        // 2. Workflow and model: their lists come from ComfyUI, on the Generator page.
+        const $gen = $(`<div class="igx-stack">
+            <div class="igx-note">Workflow: <b>${esc(s.currentWorkflowName || "none")}</b> · Model: <b>${esc(s.selectedModel || "none picked")}</b></div>
+            <div class="igx-inline"><button type="button" class="menu_button igx-btn">Open the Generator page <i class="fa-solid fa-arrow-right"></i></button></div>
+        </div>`);
+        $gen.find("button").on("click", () => goPage("gen"));
+
+        // 3. When to draw. The Draw button next to the send button works in every mode.
+        const $when = $(`<div class="igx-stack">
+            <div class="igx-note">Now: <b>${esc(whenLabel)}</b>. The <i class="fa-solid fa-image"></i> Draw button next to the send button draws the scene whenever you want, in every mode.</div>
+            <div class="igx-inline"><button type="button" class="menu_button igx-btn">Open When & how <i class="fa-solid fa-arrow-right"></i></button></div>
+        </div>`);
+        $when.find("button").on("click", () => goPage("when"));
+
+        // Plan 028: with SillyTavern's Image Generation, its own settings replace steps 1 and 2.
+        const viaST = imageBackend() === "st";
+        const $st = $(`<div class="igx-stack">
+            <div class="igx-note">Images are made by SillyTavern's Image Generation. Pick its source, model and size in SillyTavern's Extensions panel, under Image Generation.</div>
+            <div class="igx-inline"><button type="button" class="menu_button igx-btn">Open the Generator page <i class="fa-solid fa-arrow-right"></i></button></div>
+        </div>`);
+        $st.find("button").on("click", () => goPage("gen"));
+        const steps = viaST ? [
+            { title: "Set up SillyTavern's Image Generation", done: sillyTavernImagesReady(), body: $st,
+              note: sillyTavernImagesReady() ? "" : "SillyTavern's Image Generation extension is off. Turn it on in SillyTavern's Extensions." },
+            { title: "Choose when to draw", done: true, body: $when }
+        ] : [
+            { title: "Connect ComfyUI", done: connected === true, body: $conn,
+              note: connected === null ? "Checking…" : connected ? "Connected." : "ComfyUI isn't answering at this address. Start it, check the address, then Test." },
+            { title: "Pick a workflow and a model", done: Boolean(s.currentWorkflowName && s.selectedModel), body: $gen },
+            { title: "Choose when to draw", done: true, body: $when }
+        ];
+        if (engine === "v2") {
+            const $ws = $(`<div class="igx-stack">
+                <div class="igx-note">Version 2 takes each character's outfit, and who is in the scene, from World State. Until it is on, images are made the Classic way.</div>
+                <div class="igx-inline">
+                    <button type="button" class="menu_button igx-btn igx-enable-ws"><i class="fa-solid fa-thumbtack"></i> Turn on World State</button>
+                    <button type="button" class="menu_button igx-btn igx-ws-tab">World State tab <i class="fa-solid fa-arrow-right"></i></button>
+                </div>
+            </div>`);
+            $ws.find(".igx-enable-ws").toggle(!worldEnabled()).on("click", () => {
+                if (enableWorldState()) toastr.success("World State is on. Version 2 is active.", "Megumin Suite");
+                redraw();
+            });
+            $ws.find(".igx-ws-tab").on("click", () => fireRefreshHook(REFRESH.SWITCH_TAB, "world"));
+            steps.push({ title: "Turn on World State", done: worldEnabled(), body: $ws });
+        }
+        $setup.empty().append(checklist({
+            id: "images",
+            title: "Set up Images",
+            ready: `Ready · ${viaST ? "SillyTavern's Image Generation" : esc(s.currentWorkflowName || "")} · ${esc(whenLabel)}${s.enabled ? "" : " <small>(Images are off: switch them on at the top)</small>"}`,
+            steps
+        }));
+    };
 
     // One check per ComfyUI address, shared by every redraw (comfy.js); Test asks again.
     const showConnection = () => {
         const connected = igKnownConnection();
         const $chip = $ver.find(".igx-conn");
-        if (connected === null) $chip.attr("class", "igx-chip igx-conn").html(`<i class="fa-solid fa-spinner fa-spin"></i> Checking ComfyUI…`);
+        if (imageBackend() === "st") $chip.attr("class", "igx-chip igx-conn").html(`<i class="fa-solid fa-image"></i> Made by SillyTavern's Image Generation`);
+        else if (connected === null) $chip.attr("class", "igx-chip igx-conn").html(`<i class="fa-solid fa-spinner fa-spin"></i> Checking ComfyUI…`);
         else if (connected) $chip.attr("class", "igx-chip igx-conn ok").html(`<span class="igx-dot"></span> ComfyUI connected`);
         else $chip.attr("class", "igx-chip igx-conn warn").html(`<span class="igx-dot"></span> ComfyUI not connected`);
-        $notConn.css("display", connected === false ? "flex" : "none");
     };
     const check = async () => {
-        await igCheckConnection();
-        if ($.contains(document, $ver[0])) showConnection();
+        if (imageBackend() !== "st") await igCheckConnection();
+        if ($.contains(document, $ver[0])) { showConnection(); drawSetup(); }
     };
     showConnection();
+    drawSetup();
     check();
 
     // ── Pages ──
@@ -138,7 +208,7 @@ export function renderImageGen(c) {
     const drawPage = () => {
         if (currentPage === "chars") renderCharacters($page, { redraw: redrawPage });
         else if (currentPage === "when") renderWhenHow($page, { engine, redraw: redrawPage });
-        else renderGenerator($page, { redraw: redrawPage, onTested: check });
+        else renderGenerator($page, { redraw: redrawPage, onTested: check, onBackend: () => { showConnection(); drawSetup(); check(); } });
     };
     drawPage();
 }

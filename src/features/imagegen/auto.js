@@ -16,6 +16,7 @@ import { runWithChomusuke } from "../../engine/tasks.js";
 import { warnChomusuke, answerKind } from "../../engine/chomusukeNotice.js";
 import { meguminScheduleBlocksRefresh } from "../blocks/chat.js";
 import { igGenerateWithComfy } from "./comfy.js";
+import { imageBackendName } from "./backend.js";
 import { insertAtSlot } from "./slot.js";
 
 /** Chomusuke writes the automatic image prompts (Chomusuke tab: Image Generation on). */
@@ -131,7 +132,7 @@ export async function igAutoImageForReply(messageId, type, writePrompt, prepare 
         return;
     }
 
-    toastr.info("Sending to ComfyUI...", "Megumin Suite");
+    toastr.info(`Sending to ${imageBackendName()}...`, "Megumin Suite");
     igGenerateWithComfy(prompt, {
         message,
         index,

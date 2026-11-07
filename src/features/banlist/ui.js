@@ -10,7 +10,7 @@ import { renderPromptEditor } from "../../ui/promptEditor.js";
 import { getCleanedChatHistory } from "../../engine/chatText.js";
 import { analyzeSlopDirectly, analyzeSlopWithPreset, runWithChomusuke } from "../../engine/tasks.js";
 import { Popup, POPUP_TYPE, extension_settings } from "../../st.js";
-import { switchRow, segmented } from "../../ui/controls.js";
+import { switchRow, segmented, confirmPopup } from "../../ui/controls.js";
 import { getSharedFragment, setSharedFragment } from "../../core/sharedFragments.js";
 import { BUILTIN_BAN_LIST } from "../../prompts/presetFrame.js";
 import { V11_BAN_LIST } from "../../../data/modes/v11taina.js";
@@ -98,12 +98,7 @@ export function renderBanList(c) {
                 <div class="mtab-panel-title purple" style="margin-bottom:0;"><i class="fa-solid fa-radar"></i> AI Slop Detector</div>
                 <button id="ps_btn_scan_slop" class="wstyle-gen-btn" style="padding: 8px 18px; font-size: 0.78rem; background: linear-gradient(135deg, #a855f7, #7c3aed);"><i class="fa-solid fa-radar"></i> Analyze Chat</button>
             </div>
-            <div class="mtab-setting-row">
-                <div class="set-info">
-                    <div class="set-label"><i class="fa-solid fa-cat" style="color: #f43f5e; margin-right: 6px;"></i> Background Worker</div>
-                    <div class="set-desc">Managed by the <b>Chomusuke</b> tab. Configure Chomusuke to offload slop analysis to a dedicated worker LLM.</div>
-                </div>
-            </div>
+        </div>
 
         <div class="mtab-panel" style="margin-bottom:16px;">
             <div class="mtab-panel-title red"><i class="fa-solid fa-plus-circle"></i> Add Phrase</div>
@@ -117,9 +112,9 @@ export function renderBanList(c) {
             <div class="wstyle-section-head red" style="margin-bottom:0;"><i class="fa-solid fa-list"></i> Active Banned Phrases</div>
             <div class="mtab-btn-row">
                 <input type="file" id="ps_import_bans_file" accept=".json" style="display: none;">
-                <button id="ps_btn_import_bans" class="ps-modern-btn secondary" style="padding: 4px 10px; font-size: 0.72rem; color: #3b82f6; border-color: rgba(59, 130, 246, 0.3);"><i class="fa-solid fa-file-import"></i> Import</button>
-                <button id="ps_btn_export_bans" class="ps-modern-btn secondary" style="padding: 4px 10px; font-size: 0.72rem; color: #10b981; border-color: rgba(16, 185, 129, 0.3);"><i class="fa-solid fa-file-export"></i> Export</button>
-                <button id="ps_btn_clear_bans" class="ps-modern-btn secondary" style="padding: 4px 10px; font-size: 0.72rem; color: #ef4444; border-color: rgba(239, 68, 68, 0.3);"><i class="fa-solid fa-trash-can"></i> Clear All</button>
+                <button id="ps_btn_import_bans" class="ps-modern-btn secondary" style="padding: 4px 10px; font-size: 0.72rem; color: var(--c-info, #3b82f6); border-color: rgba(59, 130, 246, 0.3);"><i class="fa-solid fa-file-import"></i> Import</button>
+                <button id="ps_btn_export_bans" class="ps-modern-btn secondary" style="padding: 4px 10px; font-size: 0.72rem; color: var(--c-live, #10b981); border-color: rgba(16, 185, 129, 0.3);"><i class="fa-solid fa-file-export"></i> Export</button>
+                <button id="ps_btn_clear_bans" class="ps-modern-btn secondary" style="padding: 4px 10px; font-size: 0.72rem; color: var(--c-danger, #ef4444); border-color: rgba(239, 68, 68, 0.3);"><i class="fa-solid fa-trash-can"></i> Clear All</button>
             </div>
         </div>
         <div id="ps_banlist_container" class="mtab-card-list" style="min-height: 50px; padding: 10px; border: 1px dashed var(--border-color); border-radius: 10px; margin-bottom: 16px;"></div>
@@ -186,9 +181,9 @@ export function renderBanList(c) {
         const val = $("#ps_manual_ban_input").val().trim();
         if (val && !localProfile.banList.includes(val)) { localProfile.banList.push(val); saveProfileToMemory(); $("#ps_manual_ban_input").val(""); renderTags(); }
     });
-    $("#ps_btn_clear_bans").on("click", () => {
+    $("#ps_btn_clear_bans").on("click", async () => {
         if (localProfile.banList.length === 0) return;
-        if (confirm("Are you sure you want to delete all banned phrases?")) { localProfile.banList = []; saveProfileToMemory(); renderTags(); toastr.info("Ban list cleared."); }
+        if (await confirmPopup("Delete all your banned phrases?", "Your own phrases are removed. The built-in list is not touched.", { ok: "Delete all" })) { localProfile.banList = []; saveProfileToMemory(); renderTags(); toastr.info("Ban list cleared."); }
     });
     $("#ps_btn_export_bans").on("click", () => {
         if (!localProfile.banList || localProfile.banList.length === 0) return toastr.warning("Ban list is empty!");

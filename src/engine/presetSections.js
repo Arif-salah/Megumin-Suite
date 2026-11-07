@@ -14,6 +14,8 @@ import {
     THINKING_HEADER, FORMATTING_HEADER, REMINDER_HEADER, BANLIST_CHECK,
 } from "../prompts/presetFrame.js";
 import { wrapFormatting, wrapFinalCheck, FINAL_CHECK_HEAD } from "../prompts/v11Rules.js";
+import { BLOCKS_CHECK, BLOCKS_CHECK_SCENE } from "../prompts/scene.js";
+import { editable } from "../prompts/edits.js";
 
 // frame "v11" (plan 018): an engine with the V11 Тайна turn frame. Its thinking
 // brings its own <think> tags, and formatting and the checks are tags.
@@ -28,10 +30,10 @@ export function thinkingSection(think, { frame } = {}) {
 }
 
 /** [[formatting]]: the header, then each part that is on, in the preset's old order. */
-export function formattingSection({ dnratio, color, rules, direct, frame } = {}) {
+export function formattingSection({ dnratio, color, rules, direct, extra, frame } = {}) {
     // V11 Тайна: no formatting rules line, its <repetition> says it.
-    if (frame === "v11") return wrapFormatting(filled([dnratio, color, direct]));
-    const parts = filled([dnratio, color, rules, direct]);
+    if (frame === "v11") return wrapFormatting(filled([dnratio, color, direct, extra]));
+    const parts = filled([dnratio, color, rules, direct, extra]);
     return parts.length ? `${FORMATTING_HEADER}\n\n${parts.join("\n")}` : "";
 }
 
@@ -52,12 +54,14 @@ function checkLines(text) {
 /**
  * [[reminder]]: the header and a numbered list, counted as it is built so a
  * check that is off leaves no gap. The ban list check is listed only while the
- * ban list is sent.
+ * ban list is sent. `blocks` (plan 022): the reply ends with a <Blocks>
+ * section this turn ("scene" when <Scene> opens it), so that is checked too.
  */
-export function reminderSection({ checks, banned, presetChecks, userLine, frame } = {}) {
+export function reminderSection({ checks, banned, presetChecks, userLine, frame, blocks = false } = {}) {
     const lines = [
         ...checkLines(checks),
         ...(banned ? [BANLIST_CHECK] : []),
+        ...(blocks ? [blocks === "scene" ? editable("blocksCheckScene", BLOCKS_CHECK_SCENE) : editable("blocksCheck", BLOCKS_CHECK)] : []),
         ...checkLines(presetChecks),
         ...checkLines(userLine),
     ];
@@ -93,7 +97,8 @@ export const PRESET_SECTION_PARTS_V11 = {
     "[[thinking]]": "[[THINK]]",
     "[[formatting]]": "<formatting>\n[[DNRATIO]]\n[[COLOR]]\n[[Direct]]\n</formatting>",
     "[[banned]]": "<banlist>\n[[banlist_builtin]]\n\n[[banlist]]\n</banlist>",
-    "[[reminder]]": `<final_check>\n${FINAL_CHECK_HEAD}\n[[final_checks]]\n[[reminder_checks]]\n[[user]]\n</final_check>`,
+    // A getter, so a Dev Mode edit of the heading is read each time.
+    get "[[reminder]]"() { return `<final_check>\n${editable("v11FinalCheckHead", FINAL_CHECK_HEAD)}\n[[final_checks]]\n[[reminder_checks]]\n[[user]]\n</final_check>`; },
 };
 
 export function expandPresetSections(text, { frame } = {}) {

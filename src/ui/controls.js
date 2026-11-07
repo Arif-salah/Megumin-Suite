@@ -1,7 +1,11 @@
 // ────────────────────────────────────────────────────────────────────────────
-// Settings pages (Images, Preset & Thinking) — the small building blocks they share: a card, big choice
-// tiles, a segmented row, an on/off row, a labelled field.
+// Settings pages — the small building blocks they share: a card, big choice
+// tiles, a segmented row, an on/off row, a labelled field, a page header, a
+// note, and the popups (plan 020: one way to ask, never the browser's own
+// confirm() / prompt() boxes).
 // ────────────────────────────────────────────────────────────────────────────
+
+import { Popup, POPUP_TYPE } from "../st.js";
 
 export const esc = v => String(v == null ? "" : v)
     .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -80,4 +84,89 @@ export function busy($btn, job, done) {
         try { await job(); } catch (e) { console.error(e); toastr.error("That did not work. See the console for details.", "Megumin Suite"); }
         finally { $btn.prop("disabled", false).html(html); if (done) done(); }
     });
+}
+
+/** A page header: title, one line under it, and an optional on/off switch on the right. */
+export function header({ title, sub = "", icon = "", on, onChange, onLabel, offLabel }) {
+    const $h = $(`<div class="mtab-header">
+        <div class="mtab-header-left">
+            ${icon ? `<div class="mtab-header-icon"><i class="fa-solid ${icon}"></i></div>` : ""}
+            <div><h2>${title}</h2>${sub ? `<p>${sub}</p>` : ""}</div>
+        </div>
+    </div>`);
+    if (typeof onChange === "function") {
+        const label = v => (v ? onLabel || `${title} on` : offLabel || `${title} off`);
+        const $on = $(`<div class="mtab-toggle-row igx-switch igx-master ${on ? "active" : ""}">
+            <div class="toggle-info"><div class="toggle-label">${label(on)}</div></div>
+            <div class="ps-switch"></div>
+        </div>`);
+        $on.on("click", () => {
+            const next = !$on.hasClass("active");
+            $on.toggleClass("active", next).find(".toggle-label").text(label(next));
+            onChange(next);
+        });
+        $h.append($on);
+    }
+    return $h;
+}
+
+/** One line of help or warning. tone: "" (info) | "warn" | "red" | "ok". */
+export function note(tone, html) {
+    const icon = { warn: "fa-triangle-exclamation", red: "fa-circle-xmark", ok: "fa-circle-check" }[tone] || "fa-circle-info";
+    return $(`<div class="igx-note meg-note ${tone ? `meg-note-${tone}` : ""}"><i class="fa-solid ${icon}"></i> <span>${html}</span></div>`);
+}
+
+const popupBody = (title, html) => $(`<div style="text-align:left;">${title ? `<h3 style="margin-top:0;">${title}</h3>` : ""}${html ? (/^\s*</.test(html) ? html : `<p>${html}</p>`) : ""}</div>`);
+
+/**
+ * Asks before doing something. Resolves true on the OK button.
+ * @param {string} title  "Delete Aqua?"
+ * @param {string} html   what happens, in the user's words
+ * @param {{ ok?: string, cancel?: string }} [o]
+ */
+export async function confirmPopup(title, html, { ok = "OK", cancel = "Cancel" } = {}) {
+    const r = await new Popup(popupBody(title, html), POPUP_TYPE.CONFIRM, "", { okButton: ok, cancelButton: cancel }).show();
+    return Boolean(r);
+}
+
+/**
+ * Asks for a name. Resolves the trimmed text, or null when cancelled or empty.
+ * @param {string} title
+ * @param {{ value?: string, ok?: string, html?: string }} [o]
+ */
+export async function askName(title, { value = "", ok = "OK", html = "" } = {}) {
+    const r = await new Popup(popupBody(title, html), POPUP_TYPE.INPUT, value, { okButton: ok, cancelButton: "Cancel" }).show();
+    const name = typeof r === "string" ? r.trim() : "";
+    return name || null;
+}
+
+/**
+ * One of several answers (more than yes / no). Resolves the chosen value, or
+ * null on Cancel.
+ * @param {string} title
+ * @param {string} html
+ * @param {{ label: string, value: any }[]} choices  the first is the main button
+ */
+export async function choosePopup(title, html, choices) {
+    const [first, ...rest] = choices;
+    const r = await new Popup(popupBody(title, html), POPUP_TYPE.CONFIRM, "", {
+        okButton: first.label,
+        cancelButton: "Cancel",
+        customButtons: rest.map(c => c.label)
+    }).show();
+    if (r === 1 || r === true) return first.value;
+    if (typeof r === "number" && r >= 2 && rest[r - 2]) return rest[r - 2].value;
+    return null;
+}
+
+/**
+ * Runs a redraw of the page on screen and puts the scroll back where it was
+ * (plan 020): a tab that redraws itself after an edit used to jump to the top.
+ */
+export function keepScroll(draw) {
+    const box = document.getElementById("ps_stage_content");
+    const top = box ? box.scrollTop : 0;
+    const out = draw();
+    if (box) box.scrollTop = top;
+    return out;
 }

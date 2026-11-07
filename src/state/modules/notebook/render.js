@@ -9,7 +9,18 @@
 // Pure: no imports from SillyTavern. {{user}} is left for the caller.
 // ────────────────────────────────────────────────────────────────────────────
 
-import { LIVE_CAP, liveTruths } from "./model.js";
+import { LIVE_CAP, filledLiveTruths, clampLiveCap, peekNextId } from "./model.js";
+import { editable } from "../../../prompts/edits.js";
+
+/** How many truths the setup asks for, in words: "two or three truths" at the
+ *  default of 3, so the wording stays as written (plan 020). */
+export function truthCountWords(cap = LIVE_CAP) {
+    const n = clampLiveCap(cap);
+    if (n === 1) return "one truth";
+    if (n === 2) return "one or two truths";
+    if (n === 3) return "two or three truths";
+    return `two to ${n} truths`;
+}
 
 // How one truth is written, at setup (the story model's and Chomusuke's).
 export const NOTEBOOK_TRUTH_FORM = [
@@ -24,17 +35,31 @@ export const NOTEBOOK_TRUTH_FORM = [
 /** "setup" (no live truth: write the notebook), "running", or "off" (off or paused). */
 export function notebookPhase(state, { on = true, paused = false } = {}) {
     if (!on || paused) return "off";
-    return liveTruths(state).length ? "running" : "setup";
+    return filledLiveTruths(state).length ? "running" : "setup";
 }
 
-export function renderNotebookSetup() {
+// Dev Mode edits (src/prompts/edits.js). {{truths}} = "two or three truths"
+// (from the number of truths), {{truth_form}} = the truth form, {{max}} = that
+// number.
+/** The truth form as sent: its edit, or the built-in lines. */
+export function truthFormText() {
+    return editable("notebookTruthForm", NOTEBOOK_TRUTH_FORM.join("\n"));
+}
+
+export function renderNotebookSetup({ cap = LIVE_CAP } = {}) {
+    return editable("notebookSetupRules", notebookSetupText(truthCountWords(cap), truthFormText()),
+        { truths: truthCountWords(cap), truth_form: truthFormText() });
+}
+
+/** The built-in setup rules; Dev Mode opens it with {{truths}} and {{truth_form}}. */
+export function notebookSetupText(truths, form) {
     return [
         "## Author's Notebook rules",
         "This story keeps an author's notebook, and it is empty, so you write it this turn.",
         "",
-        "Write your reply as usual. In <Blocks>, write the Notebook block with two or three truths, built from the character sheet, the setting, and the story so far. A truth is about the world and the other characters. {{user}}'s own past and the reasons behind what they do belong to the reader. Write each one in this form:",
+        `Write your reply as usual. In <Blocks>, write the Notebook block with ${truths}, built from the character sheet, the setting, and the story so far. A truth is about the world and the other characters. {{user}}'s own past and the reasons behind what they do belong to the reader. Write each one in this form:`,
         "",
-        ...NOTEBOOK_TRUTH_FORM,
+        form,
         "",
         "The Notebook block doesn't count toward the reply's length."
     ].join("\n");
@@ -57,12 +82,12 @@ function truthLines(t) {
 }
 
 /** <Author_Notebook> for <Current_Info>: the live truths only. "" when none. */
-export function renderNotebookForPrompt(state) {
-    const live = liveTruths(state);
+export function renderNotebookForPrompt(state, { cap = LIVE_CAP } = {}) {
+    const live = filledLiveTruths(state);
     if (!live.length) return "";
     const out = ["<Author_Notebook>"];
     live.forEach((t, i) => { if (i) out.push(""); out.push(...truthLines(t)); });
-    out.push("", `Live truths: ${live.length} of ${LIVE_CAP}. Next id: T${state.next || 1}.`, "</Author_Notebook>");
+    out.push("", `Live truths: ${live.length} of ${clampLiveCap(cap)}. Next id: ${peekNextId(state)}.`, "</Author_Notebook>");
     return out.join("\n");
 }
 
@@ -70,14 +95,20 @@ export function renderNotebookForPrompt(state) {
  * The update rules. With newOnly (Chomusuke writes the clues), the story model
  * is asked only for new truths.
  */
-export function renderNotebookUpdateRules({ newOnly = false } = {}) {
+export function renderNotebookUpdateRules({ newOnly = false, cap = LIVE_CAP } = {}) {
+    const n = clampLiveCap(cap);
+    return editable(newOnly ? "notebookUpdateRulesNewOnly" : "notebookUpdateRules", notebookUpdateText(newOnly, n), { max: n });
+}
+
+/** The built-in update rules; Dev Mode opens it with {{max}}. */
+export function notebookUpdateText(newOnly, n) {
     const lines = newOnly
-        ? ["Truth+: T3      a new truth, only while fewer than 3 are live, followed by its lines in the notebook's form"]
+        ? [`Truth+: T${n}      a new truth, only while fewer than ${n} are live, followed by its lines in the notebook's form`]
         : [
             "Clue T1: <the clue this turn's story showed>",
             "Learned T1: <who on its Hidden from list found it out this turn>",
             "Truth-: T1      it came out this turn, to everyone it was hidden from",
-            "Truth+: T3      a new truth, only while fewer than 3 are live, followed by its lines in the notebook's form"
+            `Truth+: T${n}      a new truth, only while fewer than ${n} are live, followed by its lines in the notebook's form`
         ];
     return [
         "## Author's Notebook rules",
@@ -102,6 +133,7 @@ export function describeNotebookChange(ch) {
         case "edit": return `${ch.id} edited`;
         case "forget": return `${ch.id} deleted`;
         case "restore": return `${ch.id} activated again`;
+        case "add": return `${ch.id} added by you`;
         default: return "";
     }
 }

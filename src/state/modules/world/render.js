@@ -13,6 +13,21 @@
 
 import { nameKey } from "./parse.js";
 import { fieldLabel, presentCast, castDisplayName, LIST_LIMITS, OFFSCREEN_LIMIT } from "./model.js";
+import { promptEdit, fillPromptTokens, editable } from "../../../prompts/edits.js";
+
+// The limits as the user set them in the World State tab (the bridge sets
+// them before anything is rendered); the built-in numbers until then.
+let limitsNow = { ...LIST_LIMITS, offscreen: OFFSCREEN_LIMIT };
+
+/** @param {{ threads?: number, seeds?: number, timers?: number, offscreen?: number }} l */
+export function setWorldLimits(l) {
+    limitsNow = { ...LIST_LIMITS, offscreen: OFFSCREEN_LIMIT, ...(l || {}) };
+}
+
+/** The limits rendered right now: { threads, seeds, timers, offscreen }. */
+export function currentWorldLimits() {
+    return { ...limitsNow };
+}
 
 export const PC_FIELDS = ["outfit", "position", "condition", "carrying"];
 export const NPC_FIELDS = ["outfit", "position", "mood", "agenda", "secret"];
@@ -59,7 +74,7 @@ export function findReturning(state, recentText) {
 
 /**
  * @param {object} state
- * @param {{ detail?: "full"|"scene", returning?: object[], pcName?: string, noSecret?: boolean }} [opts]
+ * @param {{ detail?: "full"|"scene", returning?: object[], pcName?: string, noSecret?: boolean, noLimits?: boolean }} [opts]
  *   noSecret — the Author's Notebook is on: hidden things (Secret, Seeds) live there, not here
  */
 export function renderWorldForPrompt(state, opts = {}) {
@@ -95,10 +110,17 @@ export function renderWorldForPrompt(state, opts = {}) {
         }
     }
 
+    const onCall = Object.values(state.cast || {}).filter(c => !c.present && c.remote);
+    if (onCall.length) {
+        lines.push("");
+        lines.push("On a call (talking with {{user}} from elsewhere)");
+        for (const c of onCall) lines.push(`  ${castDisplayName(c)}`);
+    }
+
     const offscreen = Object.values(state.cast || {}).filter(c => !c.present && c.offscreen);
     if (full && offscreen.length) {
         lines.push("");
-        lines.push(`Off-screen (${offscreen.length} of ${OFFSCREEN_LIMIT})`);
+        lines.push(opts.noLimits ? "Off-screen" : `Off-screen (${offscreen.length} of ${limitsNow.offscreen})`);
         for (const c of offscreen) lines.push(`  ${c.name}: ${c.offscreen}`);
     }
 
@@ -119,7 +141,7 @@ export function renderWorldForPrompt(state, opts = {}) {
             const items = state[key] || [];
             if (!items.length) return;
             lines.push("");
-            lines.push(`${title} (${items.length} of ${LIST_LIMITS[key]})`);
+            lines.push(opts.noLimits ? title : `${title} (${items.length} of ${limitsNow[key]})`);
             items.forEach((it, i) => lines.push(`  ${i + 1}. ${it}`));
         };
         list("threads", "Threads");
@@ -145,26 +167,28 @@ const DEEP_CURRENTS_UPDATE =
     "A Secret changes only when it is exposed or a new one is born. A Thread closes only when the story answers it. " +
     "A small moment is never a reason to rewrite them.";
 
-// Models list a horse or a cart as a character, and "Present" fills up.
-const WHO_COUNTS =
-    "Only characters get a \"+ <Name>\" line: people, or beings the story treats as people, with a mind of their own who speak, plan or act. " +
-    "Animals, mounts, pets, vehicles, objects, furniture and crowds never do; put them in someone's Position or Carrying instead (\"riding a grey mare\", \"leaning on the cart\").";
+// Who is in the scene comes from the reply's <Scene> list (plan 022): the
+// "+ <Name>" / "- <Name>" lines are gone from the rules (the parser still
+// reads them in old chats).
+const FROM_SCENE =
+    "- Who is in the scene comes from <Scene>. Someone new in <Scene> gets their Outfit, Position, Mood, Agenda, Secret lines here.";
 
-const LISTS_UPDATE =
-    `- Keep at most ${LIST_LIMITS.threads} Threads, ${LIST_LIMITS.seeds} Seeds and ${LIST_LIMITS.timers} Timers. ` +
+const listsUpdate = lim =>
+    `- Keep at most ${lim.threads} Threads, ${lim.seeds} Seeds and ${lim.timers} Timers. ` +
     "When a list is full and you want to add one, first remove the one that matters least or the one the story has already answered. " +
     "<Current_World_State> numbers each Thread, Seed and Timer, so to remove one you can write its number.";
 
-const OFFSCREEN_UPDATE =
-    `- Keep at most ${OFFSCREEN_LIMIT} Off-screen lines. When ${OFFSCREEN_LIMIT} are listed and you want to add one ` +
-    "(with Offscreen: or \"- <Name>: …\"), first remove the one that matters least with Offscreen-: <Name>.";
+const offscreenUpdate = lim =>
+    "- Offscreen is only for someone away from the scene who is doing something the story will come back to, and only for characters in <Known_Names> or <Scene>: someone the story mentions without a name gets none.\n" +
+    `- Keep at most ${lim.offscreen} Off-screen lines. When ${lim.offscreen} are listed and you want to add one ` +
+    "(with Offscreen:), first remove the one that matters least with Offscreen-: <Name>.";
 
 // While the Author's Notebook is on (plan 010), hidden things live in the
 // notebook only, so World State stops asking for a Secret, and for Seeds: the
 // notebook's clues are the foreshadowing (plan 020).
 export function withoutSecret(text) {
     return String(text || "")
-        .split(`${LIST_LIMITS.threads} Threads, ${LIST_LIMITS.seeds} Seeds and `).join(`${LIST_LIMITS.threads} Threads and `)
+        .split(`${limitsNow.threads} Threads, ${limitsNow.seeds} Seeds and `).join(`${limitsNow.threads} Threads and `)
         .split("each Thread, Seed and Timer").join("each Thread and Timer")
         .split("\n").filter(l => !/^Seed\+:/.test(l)).join("\n")
         .split("Mood, Agenda, Secret and Threads").join("Mood, Agenda and Threads")
@@ -173,24 +197,73 @@ export function withoutSecret(text) {
         .split("\n").filter(l => !/\.Secret:/.test(l)).join("\n");
 }
 
+// The whole scene every reply (plan 020, "V10 + V11"): the scene is written in
+// full again, starting from where it stood. Leaving someone out is how they
+// leave, so stale people can't linger.
+const carryOver = (noSecret, noLimits) =>
+    "<Current_World_State> is where the story stood before your reply. Start from it: copy every detail your reply did not change word for word, and change only what it did. " +
+    "Write the fields of everyone in <Scene>; anyone else keeps theirs on file. " +
+    (noLimits
+        ? (noSecret
+            ? "Write the Threads and Timers that still matter; the ones you leave out are closed."
+            : "Write the Threads, Seeds and Timers that still matter; the ones you leave out are closed.")
+        : noSecret
+            ? `Write the Threads and Timers that still matter, at most ${limitsNow.threads} and ${limitsNow.timers}; the ones you leave out are closed.`
+            : `Write the Threads, Seeds and Timers that still matter, at most ${limitsNow.threads}, ${limitsNow.seeds} and ${limitsNow.timers}; the ones you leave out are closed.`);
+
+// "Full update each time" (plan 020) has no limits: no "at most N" anywhere,
+// no "Keep at most …" rule lines. The rest of the text stays as written.
+export function withoutLimits(text) {
+    return String(text || "")
+        .split("\n").filter(l => !/^- Keep at most \d/.test(l)).join("\n")
+        .replace(/\s+\(at most \d+\)/g, "")
+        .replace(/, at most \d+ lines in all\]/g, "]")
+        .replace(/; at most \d+\]/g, "]");
+}
+
 /**
  * @param {"update"|"bootstrap"} mode
- * @param {{ noSecret?: boolean }} [opts]
+ * @param {{ noSecret?: boolean, carry?: boolean, noLimits?: boolean }} [opts]
+ *   carry: a full rewrite of a scene already on file (the "full update each
+ *   time" setting, or Rewrite next reply): start from the current state.
+ *   noLimits: "full update each time" is on, so no list or Off-screen limits.
  * @returns {{ rules: string, template: string }}
  */
-export function renderWorldInstructions(mode, { noSecret = false } = {}) {
-    const ins = worldInstructions(mode);
-    return noSecret ? { rules: withoutSecret(ins.rules), template: withoutSecret(ins.template) } : ins;
+export function renderWorldInstructions(mode, { noSecret = false, carry = false, noLimits = false } = {}) {
+    const base = worldInstructions(mode);
+    let ins = noSecret ? { rules: withoutSecret(base.rules), template: withoutSecret(base.template) } : base;
+    if (noLimits) ins = { rules: withoutLimits(ins.rules), template: withoutLimits(ins.template) };
+    return mode === "bootstrap" && carry ? { ...ins, rules: `${ins.rules}\n${carryOver(noSecret, noLimits)}` } : ins;
+}
+
+// Dev Mode edits (src/prompts/edits.js): the full scene and the update, rules
+// and template apart, since they are sent in different places. The limits are
+// written as {{threads}}, {{seeds}}, {{timers}} and {{offscreen}} in an edit,
+// so the World State tab's Limits still reach it.
+export const WORLD_PROMPT_KEYS = {
+    bootstrap: { rules: "worldFullRules", template: "worldFullTemplate" },
+    update: { rules: "worldUpdateRules", template: "worldUpdateTemplate" }
+};
+const LIMIT_TOKENS = { threads: "{{threads}}", seeds: "{{seeds}}", timers: "{{timers}}", offscreen: "{{offscreen}}" };
+
+/** The built-in text with the limits as {{tokens}}: what Dev Mode opens for editing. */
+export function worldPromptDefault(mode, part) {
+    return builtinWorldInstructions(mode === "bootstrap" ? "bootstrap" : "update", LIMIT_TOKENS)[part] || "";
 }
 
 function worldInstructions(mode) {
+    const base = builtinWorldInstructions(mode, limitsNow);
+    const keys = WORLD_PROMPT_KEYS[mode === "bootstrap" ? "bootstrap" : "update"];
+    return { rules: editable(keys.rules, base.rules, limitsNow), template: editable(keys.template, base.template, limitsNow) };
+}
+
+function builtinWorldInstructions(mode, lim) {
     if (mode === "bootstrap") {
         return {
             rules: [
                 "## World State rules",
                 "In <World_State>, record the scene as it stands at the END of your reply, one fact per line, in the exact forms shown. " +
-                "List every character physically present with a \"+ <Name>\" line followed by their fields. " +
-                WHO_COUNTS + " " +
+                "Give every character in <Scene> their fields. " +
                 "Only what a camera could see goes in Outfit, Position and Condition. " +
                 "Mood, Agenda, Secret and Threads are the story's deep currents: write them as things big enough to carry a character, and the story, through many scenes to come."
             ].join("\n"),
@@ -203,17 +276,16 @@ function worldInstructions(mode) {
                 "{{user}}.Position: [posture, where in the space]",
                 "{{user}}.Condition: [visible injuries, exhaustion, sweat]",
                 "{{user}}.Carrying: [what is in hands, pockets, bag]",
-                "+ [NPC Name]",
                 "[NPC Name].Outfit: [the complete visible outfit, top to bottom, with colours]",
                 "[NPC Name].Position: [posture, where in the space, what they are doing]",
                 "[NPC Name].Mood: [their underlying emotional state, what sits beneath the moment, not a passing reaction]",
                 "[NPC Name].Agenda: [the big goal that drives them through the story, e.g. \"earn back her family's name\", never a small errand like \"order a drink\"]",
                 "[NPC Name].Secret: [something that would change how others see them, or shift the story, if it came out]",
-                "(repeat \"+ [NPC Name]\" and its fields for each character present)",
-                `Offscreen: [NPC Name] = [where they are, what they are doing]   (at most ${OFFSCREEN_LIMIT})`,
-                `Thread+: [a major tension or open question the story will have to answer, at most ${LIST_LIMITS.threads} lines in all]`,
-                `Seed+: [foreshadowing detail, what it hints at; at most ${LIST_LIMITS.seeds}]`,
-                `Timer+: [consequence]: [turns remaining]   (at most ${LIST_LIMITS.timers})`,
+                "(repeat these fields for each character in <Scene>)",
+                `Offscreen: [NPC Name] = [where they are, what they are doing]   (at most ${lim.offscreen})`,
+                `Thread+: [a major tension or open question the story will have to answer, at most ${lim.threads} lines in all]`,
+                `Seed+: [foreshadowing detail, what it hints at; at most ${lim.seeds}]`,
+                `Timer+: [consequence]: [turns remaining]   (at most ${lim.timers})`,
                 "Arc: [Setup / Escalation / Complication / Crisis / Resolution]",
                 "Scene: [Early Simmer / Building / Midpoint Tension / Climax / Breather]",
                 "</World_State>"
@@ -230,8 +302,6 @@ function worldInstructions(mode) {
             "<Name>.<Field>: <full new value>",
             "  Fields for {{user}}: Outfit, Position, Condition, Carrying",
             "  Fields for everyone else: Outfit, Position, Mood, Agenda, Secret",
-            "+ <Name>                                someone enters the scene; follow with their Outfit, Position, Mood, Agenda, Secret lines",
-            "- <Name>: <where they went or what they are doing now>",
             "Offscreen: <Name> = <where they are / what they are doing>",
             "Offscreen-: <Name>                      remove their off-screen line",
             "Thread+: <new tension>        Thread-: <its number, or the resolved tension as written>",
@@ -240,15 +310,15 @@ function worldInstructions(mode) {
             "Timer-: <its number, or the consequence>   the timer fired or no longer applies",
             "Arc: <Setup/Escalation/Complication/Crisis/Resolution>",
             "Scene: <Early Simmer/Building/Midpoint Tension/Climax/Breather>",
-            "- Use names exactly as they appear in <Current_World_State>. {{user}} is written as {{user}}.",
-            `- ${WHO_COUNTS}`,
+            "- Write names as they are written in <Known_Names>. {{user}} is written as {{user}}.",
+            FROM_SCENE,
             "- Give the complete new value of a changed field. Never write \"unchanged\" or \"same\"; leave unchanged fields out.",
             "- Write each field at most once per character.",
             "- Clothing changes matter: if anyone's clothes changed at all (removed, torn, wet, swapped), write their new Outfit.",
             "- An Outfit is the complete visible outfit, top to bottom, with colours and materials (\"grey hoodie, black joggers, white socks\"), never a summary like \"casual clothes\" or \"loungewear\".",
             DEEP_CURRENTS_UPDATE,
-            LISTS_UPDATE,
-            OFFSCREEN_UPDATE,
+            listsUpdate(lim),
+            offscreenUpdate(lim),
             "- If nothing changed, write exactly: No changes"
         ].join("\n"),
         template: "<World_Update>\n[change lines, or: No changes]\n</World_Update>"
@@ -281,10 +351,11 @@ export function renderWorldCard(state, opts = {}) {
         }
     }
 
-    const offscreen = Object.values(state.cast || {}).filter(c => !c.present && c.offscreen);
+    // People on a call (plan 022) sit with the off-screen ones on the card.
+    const offscreen = Object.values(state.cast || {}).filter(c => !c.present && (c.offscreen || c.remote));
     if (offscreen.length) {
         out.push("---", "**📡 Off-Screen:**");
-        for (const c of offscreen) out.push(`* ${c.name} — ${c.offscreen}`);
+        for (const c of offscreen) out.push(`* ${c.name} — ${c.remote ? (c.offscreen ? `on a call (${c.offscreen})` : "on a call") : c.offscreen}`);
         out.push("");
     }
 
@@ -350,8 +421,8 @@ export function describeWorldChange(ch, pcLabel = "{{user}}") {
  * Shared word for word by the Chomusuke read and the combined call.
  * @returns {{ rules: string, template: string, tag: string }}
  */
-export function renderWorldClerkTask(mode, { noSecret = false } = {}) {
-    const ins = renderWorldInstructions(mode, { noSecret });
+export function renderWorldClerkTask(mode, { noSecret = false, carry = false, noLimits = false } = {}) {
+    const ins = renderWorldInstructions(mode, { noSecret, carry, noLimits });
     const reword = t => t
         .replace(/before your reply/g, "before the latest exchange")
         .replace(/what your reply changed/g, "what the latest exchange changed")
@@ -372,16 +443,20 @@ export function renderClerkNotes(notes) {
  * @param {{ notes: string, exchange: string, mode: string, noSecret?: boolean, sheets?: string }} a
  *   sheets — the character card(s) and the persona, so the clerk knows who the people are
  */
-export function renderWorldExtractPrompt({ notes, exchange, mode, noSecret = false, sheets = "" }) {
-    const task = renderWorldClerkTask(mode, { noSecret });
-    const s = String(sheets || "").trim();
-    const system =
-        "You are a continuity clerk for an ongoing roleplay. You read the latest exchange and note what it changed: " +
+/** Chomusuke's built-in opening for the World State read (a Dev Mode edit replaces both forms). */
+export function worldClerkSystem(sheets) {
+    return "You are a continuity clerk for an ongoing roleplay. You read the latest exchange and note what it changed: " +
         "the physical scene, who is present and how they look, and the story's slow deep currents. " +
-        (s
+        (String(sheets || "").trim()
             ? "The character sheets tell you who the characters and {{user}} are; use them to understand the people. " +
               "You never write story, never explain, and never add facts that neither the exchange nor the sheets give you."
             : "You never write story, never explain, and never add facts the exchange does not state or clearly show.");
+}
+
+export function renderWorldExtractPrompt({ notes, exchange, mode, noSecret = false, sheets = "", carry = false, noLimits = false }) {
+    const task = renderWorldClerkTask(mode, { noSecret, carry, noLimits });
+    const s = String(sheets || "").trim();
+    const system = editable("worldClerkSystem", worldClerkSystem(s));
     const user = [
         ...(s ? [`<Character_Sheets>\n${s}\n</Character_Sheets>`, ""] : []),
         renderClerkNotes(notes),
