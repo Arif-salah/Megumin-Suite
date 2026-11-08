@@ -2019,9 +2019,29 @@
         margin: 0 !important;
     }
 
+    /* The row never pushes Save off the screen: every button keeps its size
+       and only the scope pill gives way, its words cut with "…" (a long
+       one like "Shared by every character" would not fit a phone). */
+    .app-actions {
+        min-width: 0;
+        max-width: 100%;
+    }
+    .app-actions > * {
+        flex-shrink: 0;
+    }
+
     #btn_apply_tab_all {
         font-size: 0.68rem !important;
         padding: 8px 11px !important;
+        flex-shrink: 1;
+        min-width: 0;
+        overflow: hidden;
+    }
+    #btn_apply_tab_all .meg-scope-text {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
     #btn_apply_tab_all i {
@@ -2037,6 +2057,7 @@
     #ps_live_token_count {
         padding: 6px 10px !important;
         font-size: 0.7rem !important;
+        margin-right: 0 !important; /* the row's gap spaces it already */
     }
 
     /* ════════════════════════════════════════════════════
